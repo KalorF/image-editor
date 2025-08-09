@@ -45,11 +45,6 @@ export class MaskBrushPlugin implements Plugin {
     // 绑定鼠标事件
     this.bindEvents();
     
-    // 监听视口缩放事件，更新笔刷光标大小
-    this.editor.viewport.on('viewport:zoom', () => {
-      this.updateBrushCursorSize();
-    });
-    
     // 添加插件方法到编辑器
     (editor as any).maskBrush = {
       enable: () => this.enable(),
@@ -70,10 +65,6 @@ export class MaskBrushPlugin implements Plugin {
   uninstall(editor: Editor): void {
     this.unbindEvents();
     this.destroyBrushCursor();
-    
-    // 移除视口事件监听器
-    this.editor.viewport.off('viewport:zoom', this.updateBrushCursorSize);
-    
     delete (editor as any).maskBrush;
   }
 
@@ -85,6 +76,11 @@ export class MaskBrushPlugin implements Plugin {
     canvas.addEventListener('mouseup', this.onMouseUp);
     canvas.addEventListener('mouseleave', this.onMouseLeave);
     canvas.addEventListener('mouseenter', this.onMouseEnter);
+
+    // 监听视口缩放事件，更新笔刷光标大小
+    this.editor.viewport.on('viewport:zoom', () => {
+      this.updateBrushCursorSize();
+    });
   }
 
   private unbindEvents(): void {
@@ -95,6 +91,8 @@ export class MaskBrushPlugin implements Plugin {
     canvas.removeEventListener('mouseup', this.onMouseUp);
     canvas.removeEventListener('mouseleave', this.onMouseLeave);
     canvas.removeEventListener('mouseenter', this.onMouseEnter);
+
+    this.editor.viewport.off('viewport:zoom', this.updateBrushCursorSize);
   }
 
   private onMouseDown = (event: MouseEvent) => {

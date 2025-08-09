@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>空格键移动画布功能测试</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+        }
+        
+        .test-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .editor-container {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            background: white;
+            margin: 20px 0;
+        }
+        
+        .controls {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .controls button {
+            padding: 8px 12px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            background: white;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        
+        .controls button.active {
+            background: #007ACC;
+            color: white;
+            border-color: #007ACC;
+        }
+        
+        .info {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        
+        .status {
+            background: #e8f4fd;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            border-left: 4px solid #007ACC;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>空格键移动画布功能测试</h1>
+        
+        <div class="controls">
+            <h3>控制面板</h3>
+            <button id="toggleSpacePan" class="active">禁用空格移动</button>
+            <button id="zoomIn">放大</button>
+            <button id="zoomOut">缩小</button>
+            <button id="resetZoom">重置缩放</button>
+            <button id="addTestImage">添加测试图像</button>
+        </div>
+        
+        <div class="status" id="status">
+            状态: 空格键移动画布功能已启用
+        </div>
+        
+        <div class="editor-container">
+            <div id="editor" style="width: 800px; height: 600px;"></div>
+        </div>
+        
+        <div class="info">
+            <h3>操作说明</h3>
+            <ul>
+                <li><strong>空格键移动:</strong> 按住空格键 + 左键拖拽移动画布</li>
+                <li><strong>滚轮缩放:</strong> 鼠标滚轮缩放画布</li>
+                <li><strong>Shift+拖拽:</strong> 按住Shift键 + 左键拖拽移动画布</li>
+                <li><strong>中键拖拽:</strong> 鼠标中键拖拽移动画布</li>
+            </ul>
+            
+            <h3>功能特性</h3>
+            <ul>
+                <li>空格键移动画布功能可以通过配置项启用/禁用</li>
+                <li>按住空格键时鼠标光标变为抓取状态</li>
+                <li>拖拽时实时移动画布</li>
+                <li>与其他移动方式（Shift+拖拽、中键拖拽）兼容</li>
+                <li>支持事件监听和状态查询</li>
+            </ul>
+        </div>
+    </div>
+
+    <script type="module">
+        // 这里需要导入编辑器模块
+        // 由于这是一个独立的测试文件，我们只展示接口使用方式
+        
+        console.log('空格键移动画布功能测试页面');
+        
+        // 模拟编辑器接口
+        let editor = null;
+        let spacePanEnabled = true;
+        
+        // 控制按钮事件
+        document.getElementById('toggleSpacePan').addEventListener('click', function() {
+            spacePanEnabled = !spacePanEnabled;
+            this.textContent = spacePanEnabled ? '禁用空格移动' : '启用空格移动';
+            this.classList.toggle('active', spacePanEnabled);
+            
+            if (editor) {
+                if (spacePanEnabled) {
+                    editor.enableSpacePan();
+                } else {
+                    editor.disableSpacePan();
+                }
+            }
+            
+            updateStatus();
+        });
+        
+        document.getElementById('zoomIn').addEventListener('click', function() {
+            if (editor) {
+                editor.zoomIn();
+            }
+        });
+        
+        document.getElementById('zoomOut').addEventListener('click', function() {
+            if (editor) {
+                editor.zoomOut();
+            }
+        });
+        
+        document.getElementById('resetZoom').addEventListener('click', function() {
+            if (editor) {
+                editor.resetZoom();
+            }
+        });
+        
+        document.getElementById('addTestImage').addEventListener('click', function() {
+            if (editor) {
+                // 创建测试图像
+                const canvas = document.createElement('canvas');
+                canvas.width = 200;
+                canvas.height = 150;
+                const ctx = canvas.getContext('2d');
+                
+                // 绘制渐变背景
+                const gradient = ctx.createLinearGradient(0, 0, 200, 150);
+                gradient.addColorStop(0, '#FF6B6B');
+                gradient.addColorStop(1, '#4ECDC4');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, 200, 150);
+                
+                // 添加文字
+                ctx.fillStyle = 'white';
+                ctx.font = '20px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('测试图像', 100, 80);
+                
+                const dataURL = canvas.toDataURL();
+                editor.addImage(dataURL);
+            }
+        });
+        
+        function updateStatus() {
+            const statusEl = document.getElementById('status');
+            if (spacePanEnabled) {
+                statusEl.textContent = '状态: 空格键移动画布功能已启用';
+                statusEl.style.borderLeftColor = '#28a745';
+            } else {
+                statusEl.textContent = '状态: 空格键移动画布功能已禁用';
+                statusEl.style.borderLeftColor = '#dc3545';
+            }
+        }
+        
+        // 初始化状态
+        updateStatus();
+        
+        // 注意：这个测试文件需要在有编辑器模块的环境中运行
+        // 实际使用时需要导入 Editor 类并创建实例
+        console.log('测试页面加载完成，请在实际环境中运行以测试功能');
+    </script>
+</body>
+</html> 

@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>实时颜色选择测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .controls {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+        .control-group {
+            display: inline-block;
+            margin-right: 20px;
+            margin-bottom: 10px;
+        }
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        .control-group input, .control-group select {
+            padding: 5px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .control-group button {
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .control-group button:hover {
+            background: #0056b3;
+        }
+        .control-group button.danger {
+            background: #dc3545;
+        }
+        .control-group button.danger:hover {
+            background: #c82333;
+        }
+        .canvas-container {
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #fff;
+        }
+        .status {
+            margin-top: 15px;
+            padding: 10px;
+            background: #e7f3ff;
+            border-left: 4px solid #007bff;
+            border-radius: 4px;
+        }
+        .status-item {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        .performance-info {
+            margin-top: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-left: 4px solid #28a745;
+            border-radius: 4px;
+        }
+        .toggle-switch {
+            display: inline-block;
+            position: relative;
+            width: 50px;
+            height: 24px;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 24px;
+        }
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .toggle-slider {
+            background-color: #007bff;
+        }
+        input:checked + .toggle-slider:before {
+            transform: translateX(26px);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>实时颜色选择功能测试</h1>
+        <p>测试ColorSelectionPlugin的实时拖动选取功能。拖动鼠标创建圆形选区，系统会实时进行颜色选择。</p>
+        
+        <div class="controls">
+            <h3>实时选择配置</h3>
+            
+            <div class="control-group">
+                <label>启用实时选择:</label>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="realTimeEnabled" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            
+            <div class="control-group">
+                <label>节流时间 (ms):</label>
+                <input type="range" id="throttleTime" min="50" max="500" value="100" step="10">
+                <span id="throttleValue">100ms</span>
+            </div>
+            
+            <div class="control-group">
+                <label>最大实时半径 (px):</label>
+                <input type="range" id="maxRadius" min="50" max="500" value="200" step="10">
+                <span id="radiusValue">200px</span>
+            </div>
+            
+            <div class="control-group">
+                <label>颜色容差:</label>
+                <input type="range" id="tolerance" min="0" max="100" value="32" step="1">
+                <span id="toleranceValue">32</span>
+            </div>
+            
+            <div class="control-group">
+                <label>选区颜色:</label>
+                <input type="color" id="selectionColor" value="#00FF00">
+            </div>
+            
+            <div class="control-group">
+                <label>选区透明度:</label>
+                <input type="range" id="opacity" min="0" max="100" value="30" step="5">
+                <span id="opacityValue">30%</span>
+            </div>
+            
+            <div class="control-group">
+                <button onclick="clearSelection()">清除选区</button>
+                <button onclick="clearCache()" class="danger">清除缓存</button>
+            </div>
+        </div>
+        
+        <div class="canvas-container">
+            <canvas id="editorCanvas" width="800" height="600"></canvas>
+        </div>
+        
+        <div class="status">
+            <h4>当前状态</h4>
+            <div class="status-item">工具: <span id="currentTool">未选择</span></div>
+            <div class="status-item">实时选择: <span id="realTimeStatus">启用</span></div>
+            <div class="status-item">节流时间: <span id="currentThrottle">100ms</span></div>
+            <div class="status-item">最大半径: <span id="currentMaxRadius">200px</span></div>
+            <div class="status-item">最后操作: <span id="lastOperation">无</span></div>
+        </div>
+        
+        <div class="performance-info">
+            <h4>性能信息</h4>
+            <div class="status-item">选择耗时: <span id="selectionTime">-</span></div>
+            <div class="status-item">缓存状态: <span id="cacheStatus">空</span></div>
+            <div class="status-item">处理的像素: <span id="processedPixels">-</span></div>
+        </div>
+    </div>
+
+    <script type="module">
+        // 注意：这里需要导入你的Editor和ColorSelectionPlugin
+        // import { Editor } from './src/editor/Editor.js';
+        // import { ColorSelectionPlugin } from './src/editor/plugins/ColorSelectionPlugin.js';
+        
+        console.log('实时颜色选择测试页面已加载');
+        console.log('请确保已正确导入Editor和ColorSelectionPlugin模块');
+        
+        // 模拟编辑器功能（实际使用时请替换为真实的编辑器实例）
+        const mockEditor = {
+            // 这里应该是真实的编辑器初始化代码
+            init() {
+                console.log('编辑器初始化中...');
+                console.log('请在实际项目中替换为真实的编辑器和插件代码');
+            }
+        };
+        
+        // 控件事件绑定
+        document.getElementById('realTimeEnabled').addEventListener('change', function(e) {
+            const enabled = e.target.checked;
+            document.getElementById('realTimeStatus').textContent = enabled ? '启用' : '禁用';
+            console.log('实时选择:', enabled);
+        });
+        
+        document.getElementById('throttleTime').addEventListener('input', function(e) {
+            const value = e.target.value;
+            document.getElementById('throttleValue').textContent = value + 'ms';
+            document.getElementById('currentThrottle').textContent = value + 'ms';
+            console.log('节流时间:', value + 'ms');
+        });
+        
+        document.getElementById('maxRadius').addEventListener('input', function(e) {
+            const value = e.target.value;
+            document.getElementById('radiusValue').textContent = value + 'px';
+            document.getElementById('currentMaxRadius').textContent = value + 'px';
+            console.log('最大半径:', value + 'px');
+        });
+        
+        document.getElementById('tolerance').addEventListener('input', function(e) {
+            const value = e.target.value;
+            document.getElementById('toleranceValue').textContent = value;
+            console.log('颜色容差:', value);
+        });
+        
+        document.getElementById('opacity').addEventListener('input', function(e) {
+            const value = e.target.value;
+            document.getElementById('opacityValue').textContent = value + '%';
+            console.log('选区透明度:', value + '%');
+        });
+        
+        document.getElementById('selectionColor').addEventListener('change', function(e) {
+            const color = e.target.value;
+            console.log('选区颜色:', color);
+        });
+        
+        // 全局函数
+        window.clearSelection = function() {
+            document.getElementById('lastOperation').textContent = '清除选区';
+            console.log('清除选区');
+        };
+        
+        window.clearCache = function() {
+            document.getElementById('lastOperation').textContent = '清除缓存';
+            document.getElementById('cacheStatus').textContent = '已清空';
+            console.log('清除缓存');
+        };
+        
+        // 模拟性能数据更新
+        setInterval(() => {
+            if (Math.random() > 0.7) {
+                const time = (Math.random() * 100 + 20).toFixed(1);
+                document.getElementById('selectionTime').textContent = time + 'ms';
+                
+                const pixels = Math.floor(Math.random() * 10000 + 1000);
+                document.getElementById('processedPixels').textContent = pixels.toLocaleString();
+                
+                document.getElementById('cacheStatus').textContent = '已缓存';
+            }
+        }, 2000);
+        
+        // 初始化
+        mockEditor.init();
+        
+        console.log(`
+=== 实时颜色选择功能说明 ===
+
+1. 实时选择模式：
+   - 启用后，在鼠标拖动过程中就会实时进行颜色选择
+   - 禁用后，只在鼠标抬起时进行选择（原有行为）
+
+2. 性能优化特性：
+   - 缓存机制：避免重复获取图像数据
+   - 节流控制：限制计算频率，默认100ms
+   - 半径限制：超过最大半径时禁用实时选择
+   - 异步处理：使用requestIdleCallback避免阻塞UI
+
+3. 使用建议：
+   - 高性能设备：节流时间50ms，最大半径300px
+   - 中等性能设备：节流时间100ms，最大半径200px
+   - 低性能设备：节流时间200ms，最大半径150px
+   - 移动设备：建议禁用实时选择
+
+4. API使用：
+   editor.colorSelection.setRealTimeSelection(true);
+   editor.colorSelection.setRealTimeThrottle(100);
+   editor.colorSelection.setMaxRealTimeRadius(200);
+   editor.colorSelection.clearCache();
+`);
+    </script>
+</body>
+</html>

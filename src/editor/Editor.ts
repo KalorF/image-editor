@@ -125,9 +125,9 @@ export class Editor extends EventEmitter {
   // 绑定事件
   private bindEvents(): void {
     // 画布事件
-    this.canvas.addEventListener('mousedown', this.handleMouseDown.bind(this));
-    this.canvas.addEventListener('mousemove', this.handleMouseMove.bind(this));
-    this.canvas.addEventListener('mouseup', this.handleMouseUp.bind(this));
+    this.canvas.addEventListener('pointerdown', this.handleMouseDown.bind(this));
+    this.canvas.addEventListener('pointermove', this.handleMouseMove.bind(this));
+    this.canvas.addEventListener('pointerup', this.handleMouseUp.bind(this));
     this.canvas.addEventListener('click', this.handleClick.bind(this));
     this.canvas.addEventListener('dblclick', this.handleDoubleClick.bind(this));
     
@@ -136,38 +136,66 @@ export class Editor extends EventEmitter {
     this.canvas.addEventListener('keyup', this.handleKeyUp.bind(this));
     
     // 视口事件
-    this.viewport.on('viewport:zoom', () => this.requestRender());
-    this.viewport.on('viewport:pan', () => this.requestRender());
-    this.viewport.on('viewport:resize', () => this.requestRender());
+    this.viewport.on('viewport:zoom', () => {
+      this.emit('viewport:zoom', { zoom: this.viewport.zoom });
+      this.requestRender();
+    });
+    this.viewport.on('viewport:pan', () => {
+      this.emit('viewport:pan', { panX: this.viewport.panX, panY: this.viewport.panY });
+      this.requestRender();
+    });
+    this.viewport.on('viewport:resize', () => {
+      this.emit('viewport:resize', { width: this.viewport.width, height: this.viewport.height });
+      this.requestRender();
+    });
     
     // 对象管理器事件
-    this.objectManager.on('object:added', () => this.requestRender());
-    this.objectManager.on('object:removed', () => this.requestRender());
-    this.objectManager.on('object:moved', () => this.requestRender());
-    this.objectManager.on('object:scaled', () => this.requestRender());
-    this.objectManager.on('object:rotated', () => this.requestRender());
+    this.objectManager.on('object:added', (event) => {
+      this.emit('object:added', event.data, event.target, event.originalEvent);
+      this.requestRender();
+    });
+    this.objectManager.on('object:removed', (event) => {
+      this.emit('object:removed', event.data, event.target, event.originalEvent);
+      this.requestRender();
+    });
+    this.objectManager.on('object:moved', (event) => {
+      this.emit('object:moved', event.data, event.target, event.originalEvent);
+      this.requestRender();
+    });
+    this.objectManager.on('object:scaled', (event) => {
+      this.emit('object:scaled', event.data, event.target, event.originalEvent);
+      this.requestRender();
+    });
+    this.objectManager.on('object:rotated', (event) => {
+      this.emit('object:rotated', event.data, event.target, event.originalEvent);
+      this.requestRender();
+    });
+    this.objectManager.on('object:resized', (event) => {
+      this.emit('object:resized', event.data, event.target, event.originalEvent);
+      this.requestRender();
+    });
     
     // 选择框事件
     this.selectionBox.on('selection:changed', (event: any) => {
       this.selectedObject = event.data.newTarget;
-      this.emit('selection:changed', event);
+      this.emit('selection:changed', event.data, event.target, event.originalEvent);
       this.requestRender();
     });
     
     this.selectionBox.on('drag:start', (event: any) => {
       this.hooks.trigger('object:drag:start', event);
-      this.emit('object:drag:start', event);
+      this.emit('object:drag:start', event.data, event.target, event.originalEvent);
     });
     
     this.selectionBox.on('drag:move', (event: any) => {
       this.hooks.trigger('object:drag:move', event);
-      this.emit('object:drag:move', event);
+      this.emit('object:drag:move', event.data, event.target, event.originalEvent);
       this.requestRender();
     });
     
     this.selectionBox.on('drag:end', (event: any) => {
       this.hooks.trigger('object:drag:end', event);
-      this.emit('object:drag:end', event);
+      this.emit('object:drag:end', event.data, event.target, event.originalEvent);
     });
   }
 

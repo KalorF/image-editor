@@ -28,6 +28,7 @@ export { MathUtils } from './utils/math';
 export { GridPlugin } from './plugins/GridPlugin';
 export { HistoryPlugin } from './plugins/HistoryPlugin';
 export { MaskBrushPlugin } from './plugins/MaskBrushPlugin';
+export { ColorSelectionPlugin } from './plugins/ColorSelectionPlugin';
 
 // 版本信息
 export const VERSION = '1.0.0';

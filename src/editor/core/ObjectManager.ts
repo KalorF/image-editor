@@ -326,7 +326,8 @@ export class ObjectManager extends EventEmitter {
   // 绑定对象事件
   private bindObjectEvents(object: BaseObject): void {
     const forwardEvent = (eventType: string) => (event: any) => {
-      this.emit(eventType, event);
+      // 只传递原始数据，避免嵌套
+      this.emit(eventType, event.data, event.target, event.originalEvent);
     };
 
     object.on('object:moved', forwardEvent('object:moved'));

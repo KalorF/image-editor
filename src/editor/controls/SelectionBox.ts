@@ -26,7 +26,7 @@ export class SelectionBox extends EventEmitter {
   
   // 样式配置
   private strokeColor: string = '#2661f1';
-  private strokeWidth: number = 1;
+  private strokeWidth: number = 1.5;
   private controlPointSize: number = 8;
   private controlPointColor: string = '#FFFFFF';
   private controlPointStroke: string = '#2661f1';
@@ -652,8 +652,8 @@ export class SelectionBox extends EventEmitter {
     // 绘制选择框边界
     ctx.strokeStyle = this.strokeColor;
     ctx.lineWidth = this.getAdjustedLineWidth(this.strokeWidth);
-    const dashSize = this.getAdjustedLineWidth(5);
-    ctx.setLineDash([dashSize, dashSize]);
+    // const dashSize = this.getAdjustedLineWidth(5);
+    // ctx.setLineDash([dashSize, dashSize]);
     
     ctx.beginPath();
     const corners = obb.corners;
@@ -664,7 +664,7 @@ export class SelectionBox extends EventEmitter {
     ctx.closePath();
     ctx.stroke();
     
-    ctx.setLineDash([]);
+    // ctx.setLineDash([]);
 
     // 绘制控制点
     ctx.fillStyle = this.controlPointColor;

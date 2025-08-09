@@ -72,6 +72,11 @@ export class Viewport extends EventEmitter {
     
     // 计算缩放中心点（世界坐标）
     const worldPoint = this.screenToWorld(mousePoint);
+
+    // const step = event.deltaMode ? 20 : 1;
+    // const deltas = [event.deltaX, event.deltaY];
+    // const [deltaX, deltaY] = deltas.map(delta => delta * -step);
+    // const zoomFactor = Math.exp(-deltaY * 0.005);
     
     // 计算新的缩放值，使用更小的缩放因子使缩放更平滑
     const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1;;

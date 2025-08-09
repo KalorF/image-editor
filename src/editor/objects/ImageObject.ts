@@ -42,7 +42,6 @@ export class ImageObject extends BaseObject {
     }
 
     this.image.onload = () => {
-      console.log('图片加载完成onload', this.image);
       this.imageLoaded = true;
       
       // 始终使用图像的原始尺寸，保持原始比例
@@ -108,6 +107,9 @@ export class ImageObject extends BaseObject {
       // 渲染mask叠加层
       this.renderMask(ctx, x, y);
 
+      // 渲染颜色选区
+      this.renderSelection(ctx, x, y);
+
     } catch (error) {
       console.error('Error rendering image:', error);
     }
@@ -145,6 +147,23 @@ export class ImageObject extends BaseObject {
     
     // 绘制colored mask到主画布
     ctx.drawImage(tempCanvas, x, y, this.width, this.height);
+    
+    ctx.restore();
+  }
+
+  // 渲染颜色选区叠加层
+  private renderSelection(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+    const selectionCanvas = (this as any).selectionCanvas as HTMLCanvasElement;
+    const hasSelection = (this as any).hasSelection as boolean;
+    
+    if (!hasSelection || !selectionCanvas) {
+      return;
+    }
+
+    ctx.save();
+    
+    // 直接绘制选区蒙版（已包含透明度和颜色）
+    ctx.drawImage(selectionCanvas, x, y, this.width, this.height);
     
     ctx.restore();
   }
