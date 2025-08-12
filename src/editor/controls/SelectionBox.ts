@@ -35,7 +35,7 @@ export class SelectionBox extends EventEmitter {
   
   // 交互状态
   private isDragging: boolean = false;
-  private dragType: 'move' | 'resize' | 'rotate' | null = null;
+  private dragType: 'move' | 'resize' | 'rotate' | 'select' | null = null;
   private dragStartPoint: Point = { x: 0, y: 0 };
   private dragControlPoint: ControlPointType | null = null;
   private initialTransform: any = null;
@@ -337,7 +337,7 @@ export class SelectionBox extends EventEmitter {
 
     // 检查是否点击了对象本身
     if (this.target.hitTest(point)) {
-      this.startDrag(point, 'move');
+      this.startDrag(point, 'select');
       return true;
     }
 
@@ -345,7 +345,7 @@ export class SelectionBox extends EventEmitter {
   }
 
   // 开始拖拽
-  private startDrag(point: Point, type: 'move' | ControlPointType): void {
+  private startDrag(point: Point, type: 'move' | ControlPointType | 'select'): void {
     if (!this.target) return;
 
     this.isDragging = true;
@@ -355,6 +355,8 @@ export class SelectionBox extends EventEmitter {
 
     if (type === 'move') {
       this.dragType = 'move';
+    } else if (type === 'select') {
+      this.dragType = 'select';
     } else if (type === ControlPointType.Rotation) {
       this.dragType = 'rotate';
     } else {
@@ -399,6 +401,11 @@ export class SelectionBox extends EventEmitter {
     // 处理拖拽
     const deltaX = point.x - this.dragStartPoint.x;
     const deltaY = point.y - this.dragStartPoint.y;
+    
+    const threshold = 5;
+    if (Math.abs(deltaX) < threshold && Math.abs(deltaY) < threshold) {
+      return false;
+    }
 
     switch (this.dragType) {
       case 'move':
@@ -410,6 +417,11 @@ export class SelectionBox extends EventEmitter {
       case 'rotate':
         this.handleRotate(point);
         break;
+      case 'select': {
+        this.dragType = 'move';
+        this.handleMove(deltaX, deltaY);
+        break;
+      }
     }
 
     this.updateControlPoints();
@@ -611,6 +623,10 @@ export class SelectionBox extends EventEmitter {
 
     if (this.canvas) {
       this.canvas.style.cursor = 'default';
+    }
+
+    if (dragType === 'select') {
+      return false;
     }
 
     this.emit('drag:end', { 

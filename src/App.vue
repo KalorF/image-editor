@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, onBeforeUnmount, watch, nextTick } from 'vue';
-import { Editor, GridPlugin, HistoryPlugin, MaskBrushPlugin, ColorSelectionPlugin } from './editor';
+import { Editor, GridPlugin, MaskBrushPlugin, ColorSelectionPlugin } from './editor';
 import ComparisonView from './components/ComparisonView.vue';
 
 const editorContainer = ref<HTMLElement>();
@@ -22,13 +22,14 @@ const spacePanEnabled = ref(true);
 const maskBrushEnabled = ref(false);
 const maskBrushSize = ref(20);
 const maskBrushMode = ref<'add' | 'remove'>('add');
-const maskBrushOpacity = ref(0.4);
-const maskBrushColor = ref('#2661f1');
+const maskBrushOpacity = ref(0.3);
+const maskBrushColor = ref('#00FF00');
 
 // 颜色选区相关状态
 const colorSelectionTolerance = ref(32);
 const colorSelectionColor = ref('#00FF00');
 const colorSelectionOpacity = ref(0.3);
+const colorSelectionMode = ref<'add' | 'remove'>('add');
 
 // DPR 调试信息
 const devicePixelRatio = ref(window.devicePixelRatio || 1);
@@ -67,19 +68,18 @@ const createEditor = () => {
     enableSpacePan: true, // 启用空格键移动画布功能
     plugins: [
       new GridPlugin({ size: 8, checkerboard: true, showShadow: false }),
-      new HistoryPlugin({ maxHistorySize: 20 }),
       new MaskBrushPlugin({ 
         brushSize: maskBrushSize.value,
         mode: maskBrushMode.value,
         opacity: maskBrushOpacity.value,
         color: maskBrushColor.value
       }),
-              new ColorSelectionPlugin({
-          tolerance: colorSelectionTolerance.value,
-          selectionColor: colorSelectionColor.value,
-          selectionOpacity: colorSelectionOpacity.value,
-          debug: true // 启用调试模式
-        })
+      new ColorSelectionPlugin({
+        tolerance: colorSelectionTolerance.value,
+        selectionColor: colorSelectionColor.value,
+        selectionOpacity: colorSelectionOpacity.value,
+        mode: colorSelectionMode.value,
+      })
     ]
   });
 
@@ -97,19 +97,19 @@ const createEditor = () => {
   });
 
   // 监听历史记录变化
-  editor.on('history:state-captured', (event) => {
-    canUndo.value = (editor as any).history.canUndo();
-    canRedo.value = (editor as any).history.canRedo();
+  editor.on('history:state-captured', () => {
+    canUndo.value = !!editor?.history?.canUndo();
+    canRedo.value = !!editor?.history?.canRedo();
   });
 
   editor.on('history:undo', () => {
-    canUndo.value = (editor as any).history.canUndo();
-    canRedo.value = (editor as any).history.canRedo();
+    canUndo.value = !!editor?.history?.canUndo();
+    canRedo.value = !!editor?.history?.canRedo();
   });
 
   editor.on('history:redo', () => {
-    canUndo.value = (editor as any).history.canUndo();
-    canRedo.value = (editor as any).history.canRedo();
+    canUndo.value = !!editor?.history?.canUndo();
+    canRedo.value = !!editor?.history?.canRedo();
   });
 
   // 监听空格键移动画布事件
@@ -234,7 +234,7 @@ const addSampleImages = () => {
 
   const dataURL = canvas.toDataURL();
   
-  editor.addImage(dataURL, 100, 100).then((imageObj) => {
+  editor.importByJson([{src: dataURL, x: 100, y: 100, type: 'image'}]).then((imageObj) => {
     console.log('示例图像添加成功:', imageObj);
   });
 };
@@ -272,14 +272,14 @@ const resetZoom = () => {
 };
 
 const undo = () => {
-  if (editor && (editor as any).history) {
-    (editor as any).history.undo();
+  if (editor) {
+    editor.undo();
   }
 };
 
 const redo = () => {
-  if (editor && (editor as any).history) {
-    (editor as any).history.redo();
+  if (editor) {
+    editor.redo();
   }
 };
 
@@ -321,7 +321,7 @@ const handleFileUpload = (event: Event) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const dataURL = e.target?.result as string;
-      editor!.addImage(dataURL).then((imageObj) => {
+      editor!.addImage({src: dataURL}).then((imageObj) => {
         console.log('图像上传成功:', imageObj);
         editor!.selectObject(imageObj);
         // 文件处理完成后再清空输入框
@@ -388,9 +388,7 @@ const testPositioning = () => {
   const dataURL = canvas.toDataURL();
   
   // 测试居中（不传坐标）
-  editor.addImage(dataURL).then((imageObj) => {
-    console.log('居中图像添加成功:', imageObj.transform);
-  });
+  editor.importByJson([{src: dataURL, x: 100, y: 100, type: 'image'}])
   };
 
 // Mask Brush 相关功能
@@ -449,6 +447,50 @@ const setBrushMode = (mode: 'add' | 'remove') => {
   }
 };
 
+const setColorSelectionMode = (mode: 'add' | 'remove') => {
+  colorSelectionMode.value = mode;
+  if (viewMode.value === 'single' && editor && (editor as any).colorSelection) {
+    (editor as any).colorSelection.setMode(mode);
+  } else if (viewMode.value === 'comparison' && comparisonView.value) {
+    comparisonView.value.setColorSelectionMode(mode);
+  }
+};
+
+const setColorSelectionTolerance = (tolerance: number) => {
+  colorSelectionTolerance.value = tolerance;
+  if (viewMode.value === 'single' && editor && (editor as any).colorSelection) {
+    (editor as any).colorSelection.setTolerance(tolerance);
+  } else if (viewMode.value === 'comparison' && comparisonView.value) {
+    comparisonView.value.setColorSelectionTolerance(tolerance);
+  }
+};
+
+const setColorSelectionColor = (color: string) => {
+  colorSelectionColor.value = color;
+  if (viewMode.value === 'single' && editor && (editor as any).colorSelection) {
+    (editor as any).colorSelection.setSelectionColor(color);
+  } else if (viewMode.value === 'comparison' && comparisonView.value) {
+    comparisonView.value.setColorSelectionColor(color);
+  }
+};
+
+const setColorSelectionOpacity = (opacity: number) => {
+  colorSelectionOpacity.value = opacity;
+  if (viewMode.value === 'single' && editor && (editor as any).colorSelection) {
+    (editor as any).colorSelection.setSelectionOpacity(opacity);
+  } else if (viewMode.value === 'comparison' && comparisonView.value) {
+    comparisonView.value.setColorSelectionOpacity(opacity);
+  }
+};
+
+const clearColorSelection = () => {
+  if (viewMode.value === 'single' && editor && (editor as any).colorSelection) {
+    (editor as any).colorSelection.clearSelection();
+  } else if (viewMode.value === 'comparison' && comparisonView.value) {
+    comparisonView.value.clearColorSelection();
+  }
+};
+
 const setBrushOpacity = (opacity: number) => {
   maskBrushOpacity.value = opacity;
   if (viewMode.value === 'single' && editor && (editor as any).maskBrush) {
@@ -495,7 +537,7 @@ const testSpecificPosition = () => {
   const dataURL = canvas.toDataURL();
   
   // 测试特定位置 (100, 100)
-  editor.addImage(dataURL, 100, 100).then((imageObj) => {
+  editor.addImage({src: dataURL, x: 100, y: 100, needRecord: false}).then((imageObj) => {
     console.log('指定位置图像添加成功:', imageObj.transform);
   });
 };
@@ -842,6 +884,101 @@ const performToggleSpacePan = () => {
                 清除蒙版
               </button>
             </div>
+          </div>
+        </div>
+
+        <!-- 颜色选区设置面板 -->
+        <div class="panel-section" v-if="selectedTool === 'colorSelection'">
+          <div class="section-header">
+            <h3>颜色选区设置</h3>
+            <div class="section-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2" stroke-dasharray="4 2"/>
+                <circle cx="12" cy="12" r="2" fill="currentColor"/>
+              </svg>
+            </div>
+          </div>
+          <div class="color-selection-settings">
+            <!-- <div class="setting-item">
+              <label>容差</label>
+              <div class="slider-container">
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="100" 
+                  v-model="colorSelectionTolerance"
+                  @input="setColorSelectionTolerance(Number(($event.target as HTMLInputElement).value))"
+                  class="slider"
+                />
+                <span class="value">{{ colorSelectionTolerance }}</span>
+              </div>
+            </div>
+            
+            <div class="setting-item">
+              <label>透明度</label>
+              <div class="slider-container">
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="1" 
+                  step="0.1"
+                  v-model="colorSelectionOpacity"
+                  @input="setColorSelectionOpacity(Number(($event.target as HTMLInputElement).value))"
+                  class="slider"
+                />
+                <span class="value">{{ Math.round(colorSelectionOpacity * 100) }}%</span>
+              </div>
+            </div> -->
+            
+            <div class="setting-item">
+              <label>模式</label>
+              <div class="mode-buttons">
+                <button 
+                  :class="{ active: colorSelectionMode === 'add' }"
+                  @click="setColorSelectionMode('add')"
+                  class="mode-btn"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2"/>
+                    <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2"/>
+                  </svg>
+                  添加
+                </button>
+                <button 
+                  :class="{ active: colorSelectionMode === 'remove' }"
+                  @click="setColorSelectionMode('remove')"
+                  class="mode-btn"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2"/>
+                  </svg>
+                  移除
+                </button>
+              </div>
+            </div>
+            
+            <!-- <div class="setting-item">
+              <label>颜色</label>
+              <input 
+                type="color" 
+                v-model="colorSelectionColor"
+                @input="setColorSelectionColor(($event.target as HTMLInputElement).value)"
+                class="color-picker"
+              />
+            </div> -->
+            
+            <!-- <div class="setting-item">
+              <button @click="clearColorSelection" class="clear-btn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M3 6h18" stroke="currentColor" stroke-width="2"/>
+                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="currentColor" stroke-width="2"/>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" stroke="currentColor" stroke-width="2"/>
+                  <line x1="10" y1="11" x2="10" y2="17" stroke="currentColor" stroke-width="2"/>
+                  <line x1="14" y1="11" x2="14" y2="17" stroke="currentColor" stroke-width="2"/>
+                </svg>
+                清除选区
+              </button>
+            </div> -->
           </div>
         </div>
 
@@ -1256,6 +1393,13 @@ body {
 
 /* 笔刷设置 */
 .brush-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* 颜色选区设置 */
+.color-selection-settings {
   display: flex;
   flex-direction: column;
   gap: 20px;

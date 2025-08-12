@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, onBeforeUnmount, watch } from 'vue';
-import { Editor, GridPlugin, HistoryPlugin, MaskBrushPlugin, ColorSelectionPlugin } from '../editor';
+import { Editor, GridPlugin, MaskBrushPlugin, ColorSelectionPlugin } from '../editor';
 
 interface Props {
   originalImage?: string;
@@ -55,7 +55,6 @@ const initializeEditors = async () => {
       enableSpacePan: props.spacePanEnabled,
       plugins: [
         new GridPlugin({ size: 8, checkerboard: true, showShadow: false }),
-        new HistoryPlugin({ maxHistorySize: 20 }),
         new MaskBrushPlugin({ 
           brushSize: 20,
           mode: 'add',
@@ -66,6 +65,7 @@ const initializeEditors = async () => {
           tolerance: 32,
           selectionColor: '#00FF00',
           selectionOpacity: 0.3,
+          mode: 'add',
           debug: true // 启用调试模式
         })
       ]
@@ -77,7 +77,6 @@ const initializeEditors = async () => {
       enableSpacePan: props.spacePanEnabled,
       plugins: [
         new GridPlugin({ size: 8, checkerboard: true, showShadow: false }),
-        new HistoryPlugin({ maxHistorySize: 20 }),
         new MaskBrushPlugin({ 
           brushSize: 20,
           mode: 'add',
@@ -88,6 +87,7 @@ const initializeEditors = async () => {
           tolerance: 32,
           selectionColor: '#00FF00',
           selectionOpacity: 0.3,
+          mode: 'add',
           debug: true // 启用调试模式
         })
       ]
@@ -389,8 +389,8 @@ const addSampleImages = async () => {
 
   try {
     // 添加图片到编辑器
-    await originalEditor.addImage(originalDataURL, 100, 100);
-    await previewEditor.addImage(previewDataURL, 100, 100);
+    await originalEditor.addImage({src: originalDataURL, x: 100, y: 100, needRecord: false});
+    await previewEditor.addImage({src: previewDataURL, x: 100, y: 100, needRecord: false});
     console.log('对比图像添加成功');
   } catch (error) {
     console.error('添加对比图像失败:', error);
@@ -491,6 +491,15 @@ const clearColorSelection = () => {
   }
   if (previewEditor && (previewEditor as any).colorSelection) {
     (previewEditor as any).colorSelection.clearSelection();
+  }
+};
+
+const setColorSelectionMode = (mode: 'add' | 'remove') => {
+  if (originalEditor && (originalEditor as any).colorSelection) {
+    (originalEditor as any).colorSelection.setMode(mode);
+  }
+  if (previewEditor && (previewEditor as any).colorSelection) {
+    (previewEditor as any).colorSelection.setMode(mode);
   }
 };
 
@@ -638,6 +647,7 @@ defineExpose({
   setColorSelectionTolerance,
   setColorSelectionColor,
   setColorSelectionOpacity,
+  setColorSelectionMode,
   clearColorSelection,
   currentTool: () => currentTool.value,
   cleanup

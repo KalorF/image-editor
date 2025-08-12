@@ -15,7 +15,7 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
   public height: number = 100;
   public fill: string = 'transparent';
   public stroke: string = '#000000';
-  public strokeWidth: number = 1;
+  public strokeWidth: number = 0;
   public opacity: number = 1;
 
   constructor(type: string, options: Partial<BaseObject> = {}) {

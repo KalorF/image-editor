@@ -10,6 +10,7 @@ import { SelectionBox } from './controls/SelectionBox';
 import { BaseObject } from './objects/BaseObject';
 import { ImageObject } from './objects/ImageObject';
 import { MathUtils } from './utils/math';
+import { HistoryManager } from './core/HistoryManager';
 
 export interface EditorOptions {
   container: HTMLElement | string;
@@ -20,6 +21,11 @@ export interface EditorOptions {
   enableZoom?: boolean;
   enablePan?: boolean;
   enableSpacePan?: boolean; // 新增：启用空格键移动画布功能
+  enableHistory?: boolean; // 新增：启用内置历史
+  history?: {
+    maxHistorySize?: number;
+    captureInterval?: number;
+  };
   plugins?: Plugin[];
 }
 
@@ -35,6 +41,7 @@ export class Editor extends EventEmitter {
   public selectionBox: SelectionBox;
   public hooks: HookManager;
   public plugins: PluginManager;
+  public history: HistoryManager | null = null;
   
   // 配置选项
   private options: EditorOptions;
@@ -85,6 +92,11 @@ export class Editor extends EventEmitter {
     this.objectManager = new ObjectManager();
     this.selectionBox = new SelectionBox({ viewport: this.viewport, canvas: this.canvas });
     
+    // 历史管理（默认启用，可通过配置关闭）
+    if (options.enableHistory !== false) {
+      this.history = new HistoryManager(this, options.history);
+    }
+    
     // 绑定事件
     this.bindEvents();
     
@@ -128,6 +140,8 @@ export class Editor extends EventEmitter {
     this.canvas.addEventListener('pointerdown', this.handleMouseDown.bind(this));
     this.canvas.addEventListener('pointermove', this.handleMouseMove.bind(this));
     this.canvas.addEventListener('pointerup', this.handleMouseUp.bind(this));
+    this.canvas.addEventListener('pointerleave', this.handleMouseLeave.bind(this));
+    this.canvas.addEventListener('pointerenter', this.handleMouseEnter.bind(this));
     this.canvas.addEventListener('click', this.handleClick.bind(this));
     this.canvas.addEventListener('dblclick', this.handleDoubleClick.bind(this));
     
@@ -152,10 +166,12 @@ export class Editor extends EventEmitter {
     // 对象管理器事件
     this.objectManager.on('object:added', (event) => {
       this.emit('object:added', event.data, event.target, event.originalEvent);
+      // this.hooks.trigger('history:capture', 'Added object');
       this.requestRender();
     });
     this.objectManager.on('object:removed', (event) => {
       this.emit('object:removed', event.data, event.target, event.originalEvent);
+      // this.hooks.trigger('history:capture', 'Removed object');
       this.requestRender();
     });
     this.objectManager.on('object:moved', (event) => {
@@ -195,6 +211,7 @@ export class Editor extends EventEmitter {
     
     this.selectionBox.on('drag:end', (event: any) => {
       this.hooks.trigger('object:drag:end', event);
+      this.hooks.trigger('history:capture', 'After transform');
       this.emit('object:drag:end', event.data, event.target, event.originalEvent);
     });
   }
@@ -316,6 +333,34 @@ export class Editor extends EventEmitter {
     this.emit('mouse:double-click', { point: worldPoint, event });
   }
 
+  private handleMouseLeave(event: MouseEvent): void {
+    const point = this.getMousePoint(event);
+    const worldPoint = this.viewport.screenToWorld(point);
+    
+    const hookResults = this.hooks.trigger('mouse:leave', worldPoint, event);
+    
+    // 如果有钩子处理了事件，则停止后续处理
+    if (hookResults.beforeResults.some((result: any) => result === true)) {
+      return;
+    }
+    
+    this.emit('mouse:leave', { point: worldPoint, event });
+  }
+
+  private handleMouseEnter(event: MouseEvent): void {
+    const point = this.getMousePoint(event);
+    const worldPoint = this.viewport.screenToWorld(point);
+    
+    const hookResults = this.hooks.trigger('mouse:enter', worldPoint, event);
+    
+    // 如果有钩子处理了事件，则停止后续处理
+    if (hookResults.beforeResults.some((result: any) => result === true)) {
+      return;
+    }
+    
+    this.emit('mouse:enter', { point: worldPoint, event });
+  }
+
   // 键盘事件处理
   private handleKeyDown(event: KeyboardEvent): void {
     // 触发钩子
@@ -343,7 +388,8 @@ export class Editor extends EventEmitter {
       this.clearSelection();
       event.preventDefault();
     } else if (event.ctrlKey || event.metaKey) {
-      switch (event.key) {
+      const key = (event.key || '').toLowerCase();
+      switch (key) {
         case 'a':
           this.selectAll();
           event.preventDefault();
@@ -362,6 +408,11 @@ export class Editor extends EventEmitter {
           } else {
             this.undo();
           }
+          event.preventDefault();
+          break;
+        case 'y':
+          // Windows/Linux 常见重做快捷键 Ctrl+Y
+          this.redo();
           event.preventDefault();
           break;
       }
@@ -391,10 +442,13 @@ export class Editor extends EventEmitter {
   }
 
   // 对象操作
-  addObject(object: BaseObject, layerId?: string): void {
+  addObject(object: BaseObject, layerId?: string, needRecord = true): void {
     this.hooks.trigger('object:before-add', object);
     this.objectManager.addObject(object, layerId);
     this.hooks.trigger('object:after-add', object);
+    if (needRecord) {
+      this.hooks.trigger('history:capture', 'Added object')
+    }
     this.requestRender();
   }
 
@@ -407,6 +461,7 @@ export class Editor extends EventEmitter {
     
     this.objectManager.removeObject(object);
     this.hooks.trigger('object:after-remove', object);
+    this.hooks.trigger('history:capture', 'Removed object')
     this.requestRender();
   }
 
@@ -472,11 +527,19 @@ export class Editor extends EventEmitter {
 
   // 撤销重做（简单实现）
   undo(): void {
-    this.emit('edit:undo');
+    if (this.history && this.history.isEnabled()) {
+      this.history.undo();
+    } else {
+      this.emit('edit:undo');
+    }
   }
 
   redo(): void {
-    this.emit('edit:redo');
+    if (this.history && this.history.isEnabled()) {
+      this.history.redo();
+    } else {
+      this.emit('edit:redo');
+    }
   }
 
   // 工具管理
@@ -535,7 +598,7 @@ export class Editor extends EventEmitter {
   private currentLoads = 0;
 
   // 添加图像
-  addImage(src: string, x?: number, y?: number): Promise<ImageObject> {
+  addImage({src, x, y, needRecord = true}: {src: string, x?: number, y?: number, needRecord?: boolean}): Promise<ImageObject> {
     return new Promise((resolve, reject) => {
       // 预计算目标中心点（世界坐标）
       // 未传坐标：以当前视图中心为基准（将屏幕中心转换为世界坐标）
@@ -544,7 +607,8 @@ export class Editor extends EventEmitter {
 
       // 先创建对象，位置暂定为世界中心（最终会在加载后再精确设置）
       const imageObject = new ImageObject(src, {
-        transform: { x: worldCenter.x, y: worldCenter.y, scaleX: 1, scaleY: 1, rotation: 0 }
+        transform: { x: worldCenter.x, y: worldCenter.y, scaleX: 1, scaleY: 1, rotation: 0 },
+        type: 'image'
       });
 
       // 立即设置事件监听器，确保不会错过缓存加载的事件
@@ -564,7 +628,7 @@ export class Editor extends EventEmitter {
           imageObject.setPosition(worldCenter.x, worldCenter.y);
         }
 
-        this.addObject(imageObject);
+        this.addObject(imageObject, undefined, needRecord);
 
         this.currentLoads--;
         this.processImageQueue(); // 处理队列中的下一个
@@ -588,6 +652,22 @@ export class Editor extends EventEmitter {
       this.processImageQueue();
     });
   }
+
+
+  async importByJson(json: Array<{src: string, x: number, y: number, type: string} | BaseObject>): Promise<void> {
+    for (let i = 0; i < json.length; i++) {
+       const obj = json[i];
+       if (obj.type === 'image') {
+         // 类型断言确保obj是包含图片数据的对象
+         const imageData = obj as {src: string, x: number, y: number, type: string};
+         await this.addImage({src: imageData.src, x: imageData.x, y: imageData.y, needRecord: false});
+       }
+    }
+    if (this.history) {
+      this.history.setInitialState(this.getState());
+    }
+  }
+
 
   // 处理图片加载队列
   private processImageQueue(): void {
@@ -631,6 +711,7 @@ export class Editor extends EventEmitter {
 
   // 渲染循环管理
   private isRenderLoopActive: boolean = false;
+  private renderSuspendCount = 0;
   
   // 启动渲染循环
   private startRenderLoop(): void {
@@ -673,17 +754,39 @@ export class Editor extends EventEmitter {
   
   requestRender(): void {
     this.needsRender = true;
-    
-    // 移除防抖逻辑，直接启动渲染循环
-    // 防抖逻辑与渲染循环的帧率限制产生冲突
-    
+    // 若渲染被挂起，则仅记录需要渲染，等待恢复后统一渲染
+    if (this.renderSuspendCount > 0) {
+      return;
+    }
     // 如果渲染循环未激活，启动它
     if (!this.isRenderLoopActive) {
       this.startRenderLoop();
     }
   }
 
+  // 渲染挂起/恢复（用于批量状态更新避免闪烁）
+  suspendRendering(): void {
+    this.renderSuspendCount++;
+  }
+
+  resumeRendering(forceRender: boolean = true): void {
+    if (this.renderSuspendCount > 0) {
+      this.renderSuspendCount--;
+    }
+    if (this.renderSuspendCount === 0) {
+      if (forceRender) {
+        this.requestRender();
+      }
+    }
+  }
+
   private render(): void {
+    // 批量状态更新期间不渲染，避免中间空帧导致闪烁
+    if (this.renderSuspendCount > 0) {
+      // 清除当前渲染请求，等待恢复后再渲染
+      this.needsRender = false;
+      return;
+    }
     
     // 重置变换矩阵并完全清除画布
     this.ctx.resetTransform();
@@ -701,13 +804,7 @@ export class Editor extends EventEmitter {
     this.ctx.fillRect(0, 0, this.viewport.width, this.viewport.height);
     
     // 渲染所有对象（传递视口信息用于视野裁剪）
-    const viewportInfo = {
-      x: -this.viewport.panX / this.viewport.zoom,
-      y: -this.viewport.panY / this.viewport.zoom,
-      width: this.viewport.width / this.viewport.zoom,
-      height: this.viewport.height / this.viewport.zoom,
-      zoom: this.viewport.zoom
-    };
+    // NOTE: 如需视野裁剪，可在此计算 viewport 信息
     this.objectManager.renderAll(this.ctx);
     
     // 渲染选择框
@@ -780,8 +877,32 @@ export class Editor extends EventEmitter {
     }
     
     if (state.objects) {
-      // 这里需要对象工厂来重建对象
-      // 暂时不实现
+      // 重建对象集合
+      try {
+        // 清空当前对象
+        this.objectManager.clear();
+        const data = state.objects;
+        const objectsArray: any[] = Array.isArray(data.objects) ? data.objects : [];
+        for (const objData of objectsArray) {
+          let obj: BaseObject | null = null;
+          if (objData.type === 'image') {
+            obj = ImageObject.fromJSON(objData);
+          }
+          // 可在此扩展其他类型工厂
+          if (obj) {
+            // 尽量保留原ID
+            if (objData.id) {
+              (obj as any).id = objData.id;
+            }
+            // 确保异步资源就绪后能触发重渲染
+            (obj as any).once?.('image:loaded', () => this.requestRender());
+            (obj as any).once?.('image:error', () => this.requestRender());
+            this.addObject(obj, undefined, false);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to rebuild objects from state:', e);
+      }
     }
     
     if (state.currentTool) {
@@ -805,6 +926,12 @@ export class Editor extends EventEmitter {
     
     // 清理插件
     this.plugins.uninstallAll();
+    
+    // 清理历史
+    if (this.history) {
+      this.history.destroy();
+      this.history = null;
+    }
     
     // 清理组件
     this.viewport.destroy();
@@ -843,5 +970,26 @@ export class Editor extends EventEmitter {
   // 验证DPR设置是否正确
   validateDPR(): boolean {
     return MathUtils.validateCanvasDPR(this.canvas);
+  }
+
+  // 历史开关
+  enableHistory(): void {
+    if (!this.history) {
+      this.history = new HistoryManager(this, this.options.history);
+    } else {
+      this.history.enable();
+    }
+    this.emit('history:enabled');
+  }
+
+  disableHistory(): void {
+    if (this.history) {
+      this.history.disable();
+    }
+    this.emit('history:disabled');
+  }
+
+  isHistoryEnabled(): boolean {
+    return !!this.history && this.history.isEnabled();
   }
 }
