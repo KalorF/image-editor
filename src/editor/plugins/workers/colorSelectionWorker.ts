@@ -1,5 +1,3 @@
-// 离屏颜色选区计算 Worker（优化版洪水填充）
-
 export interface Point { x: number; y: number }
 
 interface FloodMessage {

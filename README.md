@@ -10,8 +10,8 @@
 - ✅ **OBB选择框** - 基于有向包围盒的精确选择，支持缩放、移动、旋转
 - ✅ **历史记录** - 完整的撤销重做系统，支持自动状态捕获
 - ✅ **模块化设计** - 清晰的模块划分，易于扩展和维护
-- ✅ **插件系统** - 完整的插件架构，支持钩子机制
-- ✅ **事件系统** - 完善的事件发射器，支持自定义事件
+- ✅ **插件系统** - 完整的插件架构，支持类型安全的钩子机制
+- ✅ **事件系统** - 完善的事件发射器，支持类型安全的自定义事件
 - ✅ **对象管理** - 支持图层管理、z-index排序、批量操作
 
 ### 交互功能
@@ -67,11 +67,12 @@ src/editor/
 
 ### 设计模式
 
-1. **事件驱动架构** - 所有模块通过事件进行通信
-2. **插件化设计** - 功能可通过插件扩展
-3. **钩子机制** - 允许在关键节点插入自定义逻辑
+1. **事件驱动架构** - 所有模块通过类型安全的事件系统进行通信
+2. **插件化设计** - 功能可通过插件扩展，支持泛型类型约束
+3. **钩子机制** - 允许在关键节点插入自定义逻辑，支持类型安全的参数
 4. **面向对象** - 清晰的类继承关系
 5. **组合模式** - 模块间松耦合，高内聚
+6. **类型安全** - 完整的TypeScript类型系统，事件和钩子都有严格的类型约束
 
 ## 📖 使用方法
 
@@ -131,34 +132,36 @@ editor.importByJson(imageData);
 ### 事件监听
 
 ```typescript
+import { EditorEvents } from './editor/types';
+
 // 监听选择变化
-editor.on('selection:changed', (event) => {
-  console.log('选择的对象:', event.data.newTarget);
+editor.on(EditorEvents.SELECTION_CHANGED, (data) => {
+  console.log('选择的对象:', data.newTarget);
 });
 
 // 监听对象变化
-editor.on('object:moved', (event) => {
-  console.log('对象移动:', event.data.object);
+editor.on(EditorEvents.OBJECT_MOVED, (data) => {
+  console.log('对象移动:', data.object);
 });
 
 // 监听视口变化
-editor.on('viewport:zoom', (event) => {
-  console.log('缩放级别:', event.data.zoom);
+editor.on(EditorEvents.VIEWPORT_ZOOM, (data) => {
+  console.log('缩放级别:', data.zoom);
 });
 
 // 监听历史记录变化
-editor.on('history:undo', (event) => {
-  console.log('撤销操作:', event.data.state);
+editor.on(EditorEvents.HISTORY_UNDO, (data) => {
+  console.log('撤销操作:', data.state);
 });
 
 // 监听空格键平移
-editor.on('pan:start', (event) => {
-  console.log('开始平移:', event.data.point);
+editor.on(EditorEvents.PAN_START, (data) => {
+  console.log('开始平移:', data.point);
 });
 
 // 监听编辑器初始化完成
-editor.on('editor:initialized', () => {
-  console.log('编辑器初始化完成');
+editor.on(EditorEvents.EDITOR_INITIALIZED, (data) => {
+  console.log('编辑器初始化完成:', data.editor);
 });
 ```
 
@@ -214,8 +217,9 @@ if (gridPlugin) {
 ```typescript
 import { Plugin, Editor } from './editor';
 import type { Point } from './editor/types';
+import { EditorHooks } from './editor/types';
 
-class WatermarkPlugin implements Plugin {
+class WatermarkPlugin implements Plugin<Editor> {
   name = 'watermark';
   version = '1.0.0';
   
@@ -227,12 +231,12 @@ class WatermarkPlugin implements Plugin {
     this.editor = editor;
     
     // 注册渲染钩子
-    editor.hooks.after('render:after', this.renderWatermark.bind(this));
+    editor.hooks.after(EditorHooks.RENDER_AFTER, this.renderWatermark.bind(this));
   }
   
   uninstall(editor: Editor): void {
     // 移除钩子
-    editor.hooks.removeHook('render:after', this.renderWatermark, 'after');
+    editor.hooks.removeHook(EditorHooks.RENDER_AFTER, this.renderWatermark, 'after');
   }
   
   private renderWatermark(ctx: CanvasRenderingContext2D): void {
@@ -275,7 +279,9 @@ class WatermarkPlugin implements Plugin {
 #### 复杂交互插件示例
 
 ```typescript
-class DrawingPlugin implements Plugin {
+import { EditorHooks } from './editor/types';
+
+class DrawingPlugin implements Plugin<Editor> {
   name = 'drawing';
   version = '1.0.0';
   
@@ -290,12 +296,12 @@ class DrawingPlugin implements Plugin {
     this.editor = editor;
     
     // 注册事件钩子
-    editor.hooks.before('mouse:down', this.onMouseDown.bind(this));
-    editor.hooks.before('mouse:move', this.onMouseMove.bind(this));
-    editor.hooks.before('mouse:up', this.onMouseUp.bind(this));
+    editor.hooks.before(EditorHooks.MOUSE_DOWN, this.onMouseDown.bind(this));
+    editor.hooks.before(EditorHooks.MOUSE_MOVE, this.onMouseMove.bind(this));
+    editor.hooks.before(EditorHooks.MOUSE_UP, this.onMouseUp.bind(this));
     
     // 注册渲染钩子
-    editor.hooks.after('render:after', this.renderPaths.bind(this));
+    editor.hooks.after(EditorHooks.RENDER_AFTER, this.renderPaths.bind(this));
     
     // 添加工具切换功能
     (editor as any).setDrawingMode = (enabled: boolean) => {
@@ -305,10 +311,10 @@ class DrawingPlugin implements Plugin {
   
   uninstall(editor: Editor): void {
     // 清理钩子
-    editor.hooks.removeHook('mouse:down', this.onMouseDown);
-    editor.hooks.removeHook('mouse:move', this.onMouseMove);
-    editor.hooks.removeHook('mouse:up', this.onMouseUp);
-    editor.hooks.removeHook('render:after', this.renderPaths, 'after');
+    editor.hooks.removeHook(EditorHooks.MOUSE_DOWN, this.onMouseDown);
+    editor.hooks.removeHook(EditorHooks.MOUSE_MOVE, this.onMouseMove);
+    editor.hooks.removeHook(EditorHooks.MOUSE_UP, this.onMouseUp);
+    editor.hooks.removeHook(EditorHooks.RENDER_AFTER, this.renderPaths, 'after');
     
     // 清理扩展方法
     delete (editor as any).setDrawingMode;
@@ -340,7 +346,7 @@ class DrawingPlugin implements Plugin {
     if (this.currentPath.length > 1) {
       this.paths.push([...this.currentPath]);
       // 触发历史记录
-      this.editor.hooks.trigger('history:capture', 'Drawing path');
+      this.editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Drawing path');
     }
     this.currentPath = [];
     
@@ -394,7 +400,7 @@ class DrawingPlugin implements Plugin {
   public clearPaths(): void {
     this.paths = [];
     this.editor.requestRender();
-    this.editor.hooks.trigger('history:capture', 'Clear drawing');
+    this.editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Clear drawing');
   }
   
   private setEnabled(enabled: boolean): void {
@@ -422,8 +428,10 @@ drawingPlugin.setLineWidth(3);
 ### 钩子系统
 
 ```typescript
+import { EditorHooks } from './editor/types';
+
 // 注册前置钩子（可阻止默认行为）
-editor.hooks.before('mouse:down', (worldPoint, event) => {
+editor.hooks.before(EditorHooks.MOUSE_DOWN, (worldPoint, event) => {
   console.log('鼠标按下前处理:', worldPoint);
   // 返回 false 可以阻止后续执行
   if (someCondition) {
@@ -432,39 +440,39 @@ editor.hooks.before('mouse:down', (worldPoint, event) => {
 });
 
 // 注册后置钩子
-editor.hooks.after('object:drag:end', (event) => {
+editor.hooks.after(EditorHooks.OBJECT_DRAG_END, (event) => {
   console.log('拖拽结束后处理');
   // 可以在这里触发历史记录
-  editor.hooks.trigger('history:capture', 'Object moved');
+  editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Object moved');
 });
 
 // 渲染相关钩子
-editor.hooks.before('render:before', (ctx) => {
+editor.hooks.before(EditorHooks.RENDER_BEFORE, (ctx) => {
   // 在主渲染之前执行（如绘制背景）
   console.log('开始渲染前的准备');
 });
 
-editor.hooks.after('render:after', (ctx) => {
+editor.hooks.after(EditorHooks.RENDER_AFTER, (ctx) => {
   // 在主渲染之后执行（如绘制覆盖层）
   console.log('渲染完成后的处理');
 });
 
 // 历史记录钩子
-editor.hooks.after('history:capture', (description) => {
+editor.hooks.after(EditorHooks.HISTORY_CAPTURE, (description) => {
   console.log('捕获历史状态:', description);
 });
 
 // 对象生命周期钩子
-editor.hooks.before('object:before-add', (object) => {
+editor.hooks.before(EditorHooks.OBJECT_BEFORE_ADD, (object) => {
   console.log('对象添加前:', object);
 });
 
-editor.hooks.after('object:after-add', (object) => {
+editor.hooks.after(EditorHooks.OBJECT_AFTER_ADD, (object) => {
   console.log('对象添加后:', object);
 });
 
-// 自定义钩子触发
-editor.hooks.trigger('custom:hook', { customData: 'value' });
+// 钩子触发示例
+editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Custom operation');
 ```
 
 ## 🎮 操作说明
@@ -635,11 +643,18 @@ new Editor(options: EditorOptions)
 ### 插件接口
 
 ```typescript
-interface Plugin {
+interface Plugin<T = any> {
   name: string;
   version: string;
-  install: (editor: Editor) => void;
-  uninstall?: (editor: Editor) => void;
+  install: (editor: T) => void;
+  uninstall?: (editor: T) => void;
+}
+
+// 具体使用时指定Editor类型
+class MyPlugin implements Plugin<Editor> {
+  install(editor: Editor): void {
+    // editor参数具有完整的类型提示
+  }
 }
 ```
 
@@ -686,11 +701,12 @@ npm run dev
 - 🎮 **空格键平移** - 类似PhotoShop的空格键抓手工具
 
 ### 开发者功能
-- 🔧 **插件系统** - 完整的插件架构，支持自定义功能扩展
-- 🎯 **钩子机制** - 丰富的钩子点，可在关键时机插入自定义逻辑
+- 🔧 **插件系统** - 完整的插件架构，支持类型安全的自定义功能扩展
+- 🎯 **钩子机制** - 丰富的钩子点，可在关键时机插入类型安全的自定义逻辑
 - 📊 **状态管理** - 完整的状态序列化和恢复机制
-- 🎪 **事件系统** - 丰富的事件类型，支持自定义事件监听
+- 🎪 **事件系统** - 丰富的事件类型，支持类型安全的自定义事件监听
 - 📋 **历史记录** - 支持自定义历史捕获策略和状态管理
+- 🛡️ **类型安全** - 完整的TypeScript类型系统，编译时错误检查
 
 ## 🔮 扩展性
 

@@ -1,6 +1,7 @@
 // 对象管理器
 import { BaseObject } from '../objects/BaseObject';
 import type { Point, Bounds } from '../types';
+import { EditorEvents } from '../types';
 import { EventEmitter } from './EventEmitter';
 
 export interface LayerInfo {
@@ -61,7 +62,7 @@ export class ObjectManager extends EventEmitter {
     // 监听对象事件
     this.bindObjectEvents(object);
     
-    this.emit('object:added', { object, layerId: targetLayerId });
+    this.emit(EditorEvents.OBJECT_ADDED, { object, layerId: targetLayerId });
   }
 
   // 移除对象
@@ -86,7 +87,7 @@ export class ObjectManager extends EventEmitter {
     // 取消事件监听
     this.unbindObjectEvents(object);
     
-    this.emit('object:removed', { object });
+    this.emit(EditorEvents.OBJECT_REMOVED, { object });
   }
 
   // 通过ID移除对象
@@ -168,22 +169,22 @@ export class ObjectManager extends EventEmitter {
   // 对象层级管理
   bringToFront(object: BaseObject): void {
     (object as any).zIndex = this.zIndexCounter++;
-    this.emit('object:z-order-changed', { object, action: 'front' });
+    this.emit(EditorEvents.OBJECT_Z_ORDER_CHANGED, { object, action: 'front' });
   }
 
   sendToBack(object: BaseObject): void {
     (object as any).zIndex = -this.zIndexCounter--;
-    this.emit('object:z-order-changed', { object, action: 'back' });
+    this.emit(EditorEvents.OBJECT_Z_ORDER_CHANGED, { object, action: 'back' });
   }
 
   bringForward(object: BaseObject): void {
     (object as any).zIndex = ((object as any).zIndex || 0) + 1;
-    this.emit('object:z-order-changed', { object, action: 'forward' });
+    this.emit(EditorEvents.OBJECT_Z_ORDER_CHANGED, { object, action: 'forward' });
   }
 
   sendBackward(object: BaseObject): void {
     (object as any).zIndex = ((object as any).zIndex || 0) - 1;
-    this.emit('object:z-order-changed', { object, action: 'backward' });
+    this.emit(EditorEvents.OBJECT_Z_ORDER_CHANGED, { object, action: 'backward' });
   }
 
   // 图层管理
@@ -197,7 +198,7 @@ export class ObjectManager extends EventEmitter {
     };
     
     this.layers.push(layer);
-    this.emit('layer:created', { layer });
+    this.emit(EditorEvents.LAYER_CREATED, { layer });
     
     return layer;
   }
@@ -226,7 +227,7 @@ export class ObjectManager extends EventEmitter {
       this.activeLayerId = 'default';
     }
     
-    this.emit('layer:removed', { layerId });
+    this.emit(EditorEvents.LAYER_REMOVED, { layerId });
   }
 
   getLayer(layerId: string): LayerInfo | undefined {
@@ -244,7 +245,7 @@ export class ObjectManager extends EventEmitter {
     }
 
     this.activeLayerId = layerId;
-    this.emit('layer:active-changed', { layerId });
+    this.emit(EditorEvents.LAYER_ACTIVE_CHANGED, { layerId });
   }
 
   getActiveLayer(): LayerInfo | undefined {
@@ -256,7 +257,7 @@ export class ObjectManager extends EventEmitter {
     const layer = this.getLayer(layerId);
     if (layer) {
       layer.visible = visible;
-      this.emit('layer:visibility-changed', { layerId, visible });
+      this.emit(EditorEvents.LAYER_VISIBILITY_CHANGED, { layerId, visible });
     }
   }
 
@@ -264,7 +265,7 @@ export class ObjectManager extends EventEmitter {
     const layer = this.getLayer(layerId);
     if (layer) {
       layer.locked = locked;
-      this.emit('layer:lock-changed', { layerId, locked });
+      this.emit(EditorEvents.LAYER_LOCK_CHANGED, { layerId, locked });
     }
   }
 
@@ -272,7 +273,7 @@ export class ObjectManager extends EventEmitter {
     const layer = this.getLayer(layerId);
     if (layer) {
       layer.name = name;
-      this.emit('layer:name-changed', { layerId, name });
+      this.emit(EditorEvents.LAYER_NAME_CHANGED, { layerId, name });
     }
   }
 
@@ -298,7 +299,7 @@ export class ObjectManager extends EventEmitter {
     // 添加到目标图层
     targetLayer.objects.push(object);
     
-    this.emit('object:layer-changed', { 
+    this.emit(EditorEvents.OBJECT_LAYER_CHANGED, { 
       object, 
       fromLayerId: currentLayer.id, 
       toLayerId: targetLayerId 
@@ -320,7 +321,7 @@ export class ObjectManager extends EventEmitter {
       layer.objects = [];
     });
     
-    this.emit('objects:cleared');
+    this.emit(EditorEvents.OBJECTS_CLEARED, {});
   }
 
   // 绑定对象事件

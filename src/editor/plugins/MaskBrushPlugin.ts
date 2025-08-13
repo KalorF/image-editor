@@ -1,6 +1,7 @@
 // 涂抹插件 - 为图像添加mask涂抹功能
 import type { Plugin, Point } from '../types';
-import { Editor } from '../Editor';
+import { EditorHooks, EditorEvents } from '../types';
+import type { Editor } from '../Editor';
 import { ImageObject } from '../objects/ImageObject';
 import { BaseObject } from '../objects/BaseObject';
 
@@ -12,7 +13,7 @@ export interface MaskBrushPluginOptions {
   color?: string; // mask显示颜色
 }
 
-export class MaskBrushPlugin implements Plugin {
+export class MaskBrushPlugin implements Plugin<Editor> {
   name = 'maskBrush';
   version = '1.0.0';
   
@@ -70,11 +71,11 @@ export class MaskBrushPlugin implements Plugin {
 
   private registerEventHooks(): void {
     // 注册鼠标事件钩子
-    this.editor.hooks.before('mouse:down', this.onMouseDown);
-    this.editor.hooks.before('mouse:move', this.onMouseMove);
-    this.editor.hooks.before('mouse:up', this.onMouseUp);
-    this.editor.hooks.before('mouse:leave', this.onMouseLeave);
-    this.editor.hooks.before('mouse:enter', this.onMouseEnter);
+    this.editor.hooks.before(EditorHooks.MOUSE_DOWN, this.onMouseDown);
+    this.editor.hooks.before(EditorHooks.MOUSE_MOVE, this.onMouseMove);
+    this.editor.hooks.before(EditorHooks.MOUSE_UP, this.onMouseUp);
+    this.editor.hooks.before(EditorHooks.MOUSE_LEAVE, this.onMouseLeave);
+    this.editor.hooks.before(EditorHooks.MOUSE_ENTER, this.onMouseEnter);
 
     // 监听视口缩放事件，更新笔刷光标大小
     this.editor.viewport.on('viewport:zoom', () => {
@@ -84,11 +85,11 @@ export class MaskBrushPlugin implements Plugin {
 
   private unregisterEventHooks(): void {
     // 移除鼠标事件钩子
-    this.editor.hooks.removeHook('mouse:down', this.onMouseDown);
-    this.editor.hooks.removeHook('mouse:move', this.onMouseMove);
-    this.editor.hooks.removeHook('mouse:up', this.onMouseUp);
-    this.editor.hooks.removeHook('mouse:leave', this.onMouseLeave);
-    this.editor.hooks.removeHook('mouse:enter', this.onMouseEnter);
+    this.editor.hooks.removeHook(EditorHooks.MOUSE_DOWN, this.onMouseDown);
+    this.editor.hooks.removeHook(EditorHooks.MOUSE_MOVE, this.onMouseMove);
+    this.editor.hooks.removeHook(EditorHooks.MOUSE_UP, this.onMouseUp);
+    this.editor.hooks.removeHook(EditorHooks.MOUSE_LEAVE, this.onMouseLeave);
+    this.editor.hooks.removeHook(EditorHooks.MOUSE_ENTER, this.onMouseEnter);
 
     this.editor.viewport.off('viewport:zoom', this.updateBrushCursorSize);
   }
@@ -155,12 +156,12 @@ export class MaskBrushPlugin implements Plugin {
       this.lastPoint = null;
       
       // 触发mask变化事件
-      this.editor.emit('mask:changed', { 
+      this.editor.emit(EditorEvents.MASK_CHANGED, { 
         mode: this.options.mode,
         brushSize: this.options.brushSize 
       });
       // 记录历史（插件影响对象）
-      this.editor.hooks.trigger('history:capture', 'Mask brushed');
+      this.editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Mask brushed');
       return true; // 已处理事件，阻止默认行为
     }
     // 未处理事件，继续默认行为
@@ -384,7 +385,7 @@ export class MaskBrushPlugin implements Plugin {
     this.options.enabled = true;
     // 立即显示光标，无需检查工具状态
     this.showBrushCursor();
-    this.editor.emit('maskBrush:enabled');
+    this.editor.emit(EditorEvents.MASK_BRUSH_ENABLED, {});
   }
 
   public disable(): void {
@@ -393,18 +394,18 @@ export class MaskBrushPlugin implements Plugin {
     this.currentImageObject = null;
     this.lastPoint = null;
     this.hideBrushCursor();
-    this.editor.emit('maskBrush:disabled');
+    this.editor.emit(EditorEvents.MASK_BRUSH_DISABLED, {});
   }
 
   public setBrushSize(size: number): void {
     this.options.brushSize = Math.max(1, size);
     this.updateBrushCursorSize();
-    this.editor.emit('maskBrush:brush-size-changed', { size: this.options.brushSize });
+    this.editor.emit(EditorEvents.MASK_BRUSH_SIZE_CHANGED, { size: this.options.brushSize });
   }
 
   public setMode(mode: 'add' | 'remove'): void {
     this.options.mode = mode;
-    this.editor.emit('maskBrush:mode-changed', { mode });
+    this.editor.emit(EditorEvents.MASK_BRUSH_MODE_CHANGED, { mode });
   }
 
   public setOpacity(opacity: number): void {
@@ -419,8 +420,8 @@ export class MaskBrushPlugin implements Plugin {
     });
     
     this.editor.requestRender();
-    this.editor.emit('maskBrush:opacity-changed', { opacity: this.options.opacity });
-    this.editor.hooks.trigger('history:capture', 'Mask opacity changed');
+    this.editor.emit(EditorEvents.MASK_BRUSH_OPACITY_CHANGED, { opacity: this.options.opacity });
+    this.editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Mask opacity changed');
   }
 
   public setColor(color: string): void {
@@ -436,8 +437,8 @@ export class MaskBrushPlugin implements Plugin {
     
     this.updateBrushCursorSize(); // 更新光标颜色
     this.editor.requestRender();
-    this.editor.emit('maskBrush:color-changed', { color });
-    this.editor.hooks.trigger('history:capture', 'Mask color changed');
+    this.editor.emit(EditorEvents.MASK_BRUSH_COLOR_CHANGED, { color });
+    this.editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Mask color changed');
   }
 
   public clearMask(imageObj?: ImageObject): void {
@@ -454,8 +455,8 @@ export class MaskBrushPlugin implements Plugin {
     }
     
     this.editor.requestRender();
-    this.editor.emit('mask:cleared', { imageObject: imageObj });
-    this.editor.hooks.trigger('history:capture', 'Mask cleared');
+    this.editor.emit(EditorEvents.MASK_CLEARED, { imageObject: imageObj });
+    this.editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Mask cleared');
   }
 
   private clearImageMask(imageObj: ImageObject): void {
@@ -465,6 +466,4 @@ export class MaskBrushPlugin implements Plugin {
       maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
     }
   }
-
-
 }

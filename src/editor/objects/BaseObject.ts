@@ -2,6 +2,7 @@
 import type { RenderObject, Transform, Point, OBB, Bounds } from '../types';
 import { MathUtils } from '../utils/math';
 import { EventEmitter } from '../core/EventEmitter';
+import { EditorEvents } from '../types';
 
 export abstract class BaseObject extends EventEmitter implements RenderObject {
   public id: string;
@@ -81,7 +82,7 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
   move(deltaX: number, deltaY: number): void {
     this.transform.x += deltaX;
     this.transform.y += deltaY;
-    this.emit('object:moved', { object: this, deltaX, deltaY });
+    this.emit(EditorEvents.OBJECT_MOVED, { object: this, deltaX, deltaY });
   }
 
   // 设置位置
@@ -92,7 +93,7 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
     this.transform.x = x;
     this.transform.y = y;
     
-    this.emit('object:moved', { 
+    this.emit(EditorEvents.OBJECT_MOVED, { 
       object: this, 
       deltaX: x - oldX, 
       deltaY: y - oldY 
@@ -103,7 +104,7 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
   scale(scaleX: number, scaleY: number = scaleX): void {
     this.transform.scaleX *= scaleX;
     this.transform.scaleY *= scaleY;
-    this.emit('object:scaled', { object: this, scaleX, scaleY });
+    this.emit(EditorEvents.OBJECT_SCALED, { object: this, scaleX, scaleY });
   }
 
   // 设置缩放
@@ -114,7 +115,7 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
     this.transform.scaleX = scaleX;
     this.transform.scaleY = scaleY;
     
-    this.emit('object:scaled', { 
+    this.emit(EditorEvents.OBJECT_SCALED, { 
       object: this, 
       scaleX: scaleX / oldScaleX, 
       scaleY: scaleY / oldScaleY 
@@ -124,14 +125,14 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
   // 旋转对象
   rotate(angle: number): void {
     this.transform.rotation += angle;
-    this.emit('object:rotated', { object: this, angle });
+    this.emit(EditorEvents.OBJECT_ROTATED, { object: this, angle });
   }
 
   // 设置旋转角度
   setRotation(angle: number): void {
     const oldRotation = this.transform.rotation;
     this.transform.rotation = angle;
-    this.emit('object:rotated', { 
+    this.emit(EditorEvents.OBJECT_ROTATED, { 
       object: this, 
       angle: angle - oldRotation 
     });
@@ -141,7 +142,7 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
   setSize(width: number, height: number): void {
     this.width = width;
     this.height = height;
-    this.emit('object:resized', { object: this, width, height });
+    this.emit(EditorEvents.OBJECT_RESIZED, { object: this, width, height });
   }
 
   // 克隆对象

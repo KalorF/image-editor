@@ -1,9 +1,10 @@
 // 插件管理器
 import type { Plugin } from '../types';
+import { EditorEvents } from '../types';
 import { EventEmitter } from './EventEmitter';
 
 export class PluginManager extends EventEmitter {
-  private plugins: Map<string, Plugin> = new Map();
+  private plugins: Map<string, Plugin<any>> = new Map();
   private installedPlugins: Set<string> = new Set();
 
   private editor: any;
@@ -14,14 +15,14 @@ export class PluginManager extends EventEmitter {
   }
 
   // 注册插件
-  register(plugin: Plugin): void {
+  register(plugin: Plugin<any>): void {
     if (this.plugins.has(plugin.name)) {
       console.warn(`Plugin ${plugin.name} is already registered`);
       return;
     }
 
     this.plugins.set(plugin.name, plugin);
-    this.emit('plugin:registered', { plugin });
+    this.emit(EditorEvents.PLUGIN_REGISTERED, { plugin });
   }
 
   // 安装插件
@@ -38,14 +39,14 @@ export class PluginManager extends EventEmitter {
 
     try {
       // 触发安装前钩子
-      this.emit('plugin:before-install', { plugin, editor: this.editor });
+      this.emit(EditorEvents.PLUGIN_BEFORE_INSTALL, { plugin, editor: this.editor });
       
       // 安装插件
       plugin.install(this.editor);
       this.installedPlugins.add(pluginName);
       
       // 触发安装后钩子
-      this.emit('plugin:installed', { plugin, editor: this.editor });
+      this.emit(EditorEvents.PLUGIN_INSTALLED, { plugin, editor: this.editor });
       
       console.log(`Plugin ${pluginName} installed successfully`);
     } catch (error) {
@@ -68,7 +69,7 @@ export class PluginManager extends EventEmitter {
 
     try {
       // 触发卸载前钩子
-      this.emit('plugin:before-uninstall', { plugin, editor: this.editor });
+      this.emit(EditorEvents.PLUGIN_BEFORE_UNINSTALL, { plugin, editor: this.editor });
       
       // 卸载插件
       if (plugin.uninstall) {
@@ -77,7 +78,7 @@ export class PluginManager extends EventEmitter {
       this.installedPlugins.delete(pluginName);
       
       // 触发卸载后钩子
-      this.emit('plugin:uninstalled', { plugin, editor: this.editor });
+      this.emit(EditorEvents.PLUGIN_UNINSTALLED, { plugin, editor: this.editor });
       
       console.log(`Plugin ${pluginName} uninstalled successfully`);
     } catch (error) {

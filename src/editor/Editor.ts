@@ -1,6 +1,6 @@
 // 主编辑器类
-// 主编辑器类
 import type { Point, Plugin } from './types';
+import { EditorHooks, EditorEvents } from './types';
 import { EventEmitter } from './core/EventEmitter';
 import { HookManager } from './core/HookManager';
 import { PluginManager } from './core/PluginManager';
@@ -26,7 +26,7 @@ export interface EditorOptions {
     maxHistorySize?: number;
     captureInterval?: number;
   };
-  plugins?: Plugin[];
+  plugins?: Plugin<Editor>[];
 }
 
 export class Editor extends EventEmitter {
@@ -109,7 +109,7 @@ export class Editor extends EventEmitter {
     this.requestRender();
     
     this.isInitialized = true;
-    this.emit('editor:initialized', { editor: this });
+    this.emit(EditorEvents.EDITOR_INITIALIZED, { editor: this });
   }
 
   // 创建画布
@@ -146,85 +146,94 @@ export class Editor extends EventEmitter {
     this.canvas.addEventListener('dblclick', this.handleDoubleClick.bind(this));
     
     // 键盘事件
-    this.canvas.addEventListener('keydown', this.handleKeyDown.bind(this));
-    this.canvas.addEventListener('keyup', this.handleKeyUp.bind(this));
+    document.addEventListener('keydown', this.handleKeyDown.bind(this));
+    document.addEventListener('keyup', this.handleKeyUp.bind(this));
     
     // 视口事件
-    this.viewport.on('viewport:zoom', () => {
-      this.emit('viewport:zoom', { zoom: this.viewport.zoom });
+    this.viewport.on(EditorEvents.VIEWPORT_ZOOM, () => {
+      this.emit(EditorEvents.VIEWPORT_ZOOM, { zoom: this.viewport.zoom });
       this.requestRender();
     });
-    this.viewport.on('viewport:pan', () => {
-      this.emit('viewport:pan', { panX: this.viewport.panX, panY: this.viewport.panY });
+    this.viewport.on(EditorEvents.VIEWPORT_PAN, () => {
+      this.emit(EditorEvents.VIEWPORT_PAN, { panX: this.viewport.panX, panY: this.viewport.panY });
       this.requestRender();
     });
-    this.viewport.on('viewport:resize', () => {
-      this.emit('viewport:resize', { width: this.viewport.width, height: this.viewport.height });
+    this.viewport.on(EditorEvents.VIEWPORT_RESIZE, () => {
+      this.emit(EditorEvents.VIEWPORT_RESIZE, { width: this.viewport.width, height: this.viewport.height });
       this.requestRender();
     });
     
     // 对象管理器事件
-    this.objectManager.on('object:added', (event) => {
-      this.emit('object:added', event.data, event.target, event.originalEvent);
-      // this.hooks.trigger('history:capture', 'Added object');
+    this.objectManager.on(EditorEvents.OBJECT_ADDED, (data) => {
+      this.emit(EditorEvents.OBJECT_ADDED, data);
       this.requestRender();
     });
-    this.objectManager.on('object:removed', (event) => {
-      this.emit('object:removed', event.data, event.target, event.originalEvent);
-      // this.hooks.trigger('history:capture', 'Removed object');
+    this.objectManager.on(EditorEvents.OBJECT_REMOVED, (data) => {
+      this.emit(EditorEvents.OBJECT_REMOVED, data);
       this.requestRender();
     });
-    this.objectManager.on('object:moved', (event) => {
-      this.emit('object:moved', event.data, event.target, event.originalEvent);
+    this.objectManager.on(EditorEvents.OBJECT_MOVED, (data) => {
+      this.emit(EditorEvents.OBJECT_MOVED, data);
       this.requestRender();
     });
-    this.objectManager.on('object:scaled', (event) => {
-      this.emit('object:scaled', event.data, event.target, event.originalEvent);
+    this.objectManager.on(EditorEvents.OBJECT_SCALED, (data) => {
+      this.emit(EditorEvents.OBJECT_SCALED, data);
       this.requestRender();
     });
-    this.objectManager.on('object:rotated', (event) => {
-      this.emit('object:rotated', event.data, event.target, event.originalEvent);
+    this.objectManager.on(EditorEvents.OBJECT_ROTATED, (data) => {
+      this.emit(EditorEvents.OBJECT_ROTATED, data);
       this.requestRender();
     });
-    this.objectManager.on('object:resized', (event) => {
-      this.emit('object:resized', event.data, event.target, event.originalEvent);
+    this.objectManager.on(EditorEvents.OBJECT_RESIZED, (data) => {
+      this.emit(EditorEvents.OBJECT_RESIZED, data);
       this.requestRender();
     });
     
     // 选择框事件
-    this.selectionBox.on('selection:changed', (event: any) => {
-      this.selectedObject = event.data.newTarget;
-      this.emit('selection:changed', event.data, event.target, event.originalEvent);
+    this.selectionBox.on(EditorEvents.SELECTION_CHANGED, (data: any) => {
+      this.selectedObject = data.newTarget;
+      this.emit(EditorEvents.SELECTION_CHANGED, data);
       this.requestRender();
     });
     
-    this.selectionBox.on('drag:start', (event: any) => {
-      this.hooks.trigger('object:drag:start', event);
-      this.emit('object:drag:start', event.data, event.target, event.originalEvent);
+    this.selectionBox.on(EditorEvents.DRAG_START, (event) => {
+      this.emit(EditorEvents.OBJECT_DRAG_START, event);
     });
     
-    this.selectionBox.on('drag:move', (event: any) => {
-      this.hooks.trigger('object:drag:move', event);
-      this.emit('object:drag:move', event.data, event.target, event.originalEvent);
+    this.selectionBox.on(EditorEvents.DRAG_MOVE, (event) => {
+      this.hooks.trigger(EditorHooks.OBJECT_DRAG_MOVE, event);
+      this.emit(EditorEvents.OBJECT_DRAG_MOVE, event || {});
       this.requestRender();
     });
     
-    this.selectionBox.on('drag:end', (event: any) => {
-      this.hooks.trigger('object:drag:end', event);
-      this.hooks.trigger('history:capture', 'After transform');
-      this.emit('object:drag:end', event.data, event.target, event.originalEvent);
+    this.selectionBox.on(EditorEvents.DRAG_END, (event: any) => {
+      this.hooks.trigger(EditorHooks.OBJECT_DRAG_END, event);
+      this.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'After transform');
+      this.emit(EditorEvents.OBJECT_DRAG_END, event || {});
     });
+  }
+
+  private unbindEvents(): void {
+    this.canvas.removeEventListener('pointerdown', this.handleMouseDown);
+    this.canvas.removeEventListener('pointermove', this.handleMouseMove);
+    this.canvas.removeEventListener('pointerup', this.handleMouseUp);
+    this.canvas.removeEventListener('pointerleave', this.handleMouseLeave);
+    this.canvas.removeEventListener('pointerenter', this.handleMouseEnter);
+    this.canvas.removeEventListener('click', this.handleClick);
+    this.canvas.removeEventListener('dblclick', this.handleDoubleClick);
+    document.removeEventListener('keydown', this.handleKeyDown);
+    document.removeEventListener('keyup', this.handleKeyUp);
   }
 
   // 鼠标事件处理
   private handleMouseDown(event: MouseEvent): void {
-    this.canvas.focus();
+    // this.canvas.focus();
     
     const point = this.getMousePoint(event);
     const worldPoint = this.viewport.screenToWorld(point);
     
     // 触发钩子
-    const hookResults = this.hooks.trigger('mouse:down', worldPoint, event);
+    const hookResults = this.hooks.trigger(EditorHooks.MOUSE_DOWN, worldPoint, event);
     if (hookResults.beforeResults.includes(false)) {
       return;
     }
@@ -235,7 +244,7 @@ export class Editor extends EventEmitter {
       this.isPanning = true;
       this.lastPanPoint = point;
       this.canvas.style.cursor = 'grabbing';
-      this.emit('pan:start', { point: worldPoint, event });
+      this.emit(EditorEvents.PAN_START, { point: worldPoint, event });
       return;
     }
     
@@ -243,7 +252,7 @@ export class Editor extends EventEmitter {
     if (this.options.enableSelection !== false && this.currentTool === 'select') {
       const handled = this.selectionBox.handleMouseDown(worldPoint, event);
       if (handled) {
-        this.emit('mouse:down', { point: worldPoint, event, handled: true });
+        this.emit(EditorEvents.MOUSE_DOWN, { point: worldPoint, event, handled: true });
         return;
       }
     }
@@ -259,7 +268,7 @@ export class Editor extends EventEmitter {
       }
     }
     
-    this.emit('mouse:down', { point: worldPoint, event, handled: false });
+    this.emit(EditorEvents.MOUSE_DOWN, { point: worldPoint, event, handled: false });
   }
 
   private handleMouseMove(event: MouseEvent): void {
@@ -267,7 +276,7 @@ export class Editor extends EventEmitter {
     const worldPoint = this.viewport.screenToWorld(point);
     
     // 触发钩子
-    const hookResults = this.hooks.trigger('mouse:move', worldPoint, event);
+    const hookResults = this.hooks.trigger(EditorHooks.MOUSE_MOVE, worldPoint, event);
     if (hookResults.beforeResults.includes(false)) {
       return;
     }
@@ -279,7 +288,7 @@ export class Editor extends EventEmitter {
       
       this.viewport.pan(deltaX, deltaY);
       this.lastPanPoint = point;
-      this.emit('pan:move', { point: worldPoint, deltaX, deltaY, event });
+      this.emit(EditorEvents.PAN_MOVE, { point: worldPoint, deltaX, deltaY, event });
       return;
     }
     
@@ -288,7 +297,7 @@ export class Editor extends EventEmitter {
       this.selectionBox.handleMouseMove(worldPoint);
     }
     
-    this.emit('mouse:move', { point: worldPoint, event });
+    this.emit(EditorEvents.MOUSE_MOVE, { point: worldPoint, event });
   }
 
   private handleMouseUp(event: MouseEvent): void {
@@ -296,7 +305,7 @@ export class Editor extends EventEmitter {
     const worldPoint = this.viewport.screenToWorld(point);
     
     // 触发钩子
-    const hookResults = this.hooks.trigger('mouse:up', worldPoint, event);
+    const hookResults = this.hooks.trigger(EditorHooks.MOUSE_UP, worldPoint, event);
     if (hookResults.beforeResults.includes(false)) {
       return;
     }
@@ -305,7 +314,7 @@ export class Editor extends EventEmitter {
     if (this.isPanning) {
       this.isPanning = false;
       this.canvas.style.cursor = this.isSpacePressed ? 'grab' : 'default';
-      this.emit('pan:end', { point: worldPoint, event });
+      this.emit(EditorEvents.PAN_END, { point: worldPoint, event });
       return;
     }
     
@@ -314,57 +323,57 @@ export class Editor extends EventEmitter {
       this.selectionBox.handleMouseUp();
     }
     
-    this.emit('mouse:up', { point: worldPoint, event });
+    this.emit(EditorEvents.MOUSE_UP, { point: worldPoint, event });
   }
 
   private handleClick(event: MouseEvent): void {
     const point = this.getMousePoint(event);
     const worldPoint = this.viewport.screenToWorld(point);
     
-    this.hooks.trigger('mouse:click', worldPoint, event);
-    this.emit('mouse:click', { point: worldPoint, event });
+    this.hooks.trigger(EditorHooks.MOUSE_CLICK, worldPoint, event);
+    this.emit(EditorEvents.MOUSE_CLICK, { point: worldPoint, event });
   }
 
   private handleDoubleClick(event: MouseEvent): void {
     const point = this.getMousePoint(event);
     const worldPoint = this.viewport.screenToWorld(point);
     
-    this.hooks.trigger('mouse:double-click', worldPoint, event);
-    this.emit('mouse:double-click', { point: worldPoint, event });
+    this.hooks.trigger(EditorHooks.MOUSE_DOUBLE_CLICK, worldPoint, event);
+    this.emit(EditorEvents.MOUSE_DOUBLE_CLICK, { point: worldPoint, event });
   }
 
   private handleMouseLeave(event: MouseEvent): void {
     const point = this.getMousePoint(event);
     const worldPoint = this.viewport.screenToWorld(point);
     
-    const hookResults = this.hooks.trigger('mouse:leave', worldPoint, event);
+    const hookResults = this.hooks.trigger(EditorHooks.MOUSE_LEAVE, worldPoint, event);
     
     // 如果有钩子处理了事件，则停止后续处理
     if (hookResults.beforeResults.some((result: any) => result === true)) {
       return;
     }
     
-    this.emit('mouse:leave', { point: worldPoint, event });
+    this.emit(EditorEvents.MOUSE_LEAVE, { point: worldPoint, event });
   }
 
   private handleMouseEnter(event: MouseEvent): void {
     const point = this.getMousePoint(event);
     const worldPoint = this.viewport.screenToWorld(point);
     
-    const hookResults = this.hooks.trigger('mouse:enter', worldPoint, event);
+    const hookResults = this.hooks.trigger(EditorHooks.MOUSE_ENTER, worldPoint, event);
     
     // 如果有钩子处理了事件，则停止后续处理
     if (hookResults.beforeResults.some((result: any) => result === true)) {
       return;
     }
     
-    this.emit('mouse:enter', { point: worldPoint, event });
+    this.emit(EditorEvents.MOUSE_ENTER, { point: worldPoint, event });
   }
 
   // 键盘事件处理
   private handleKeyDown(event: KeyboardEvent): void {
     // 触发钩子
-    const hookResults = this.hooks.trigger('key:down', event);
+    const hookResults = this.hooks.trigger(EditorHooks.KEY_DOWN, event);
     if (hookResults.beforeResults.includes(false)) {
       return;
     }
@@ -374,7 +383,7 @@ export class Editor extends EventEmitter {
       if (!this.isSpacePressed) {
         this.isSpacePressed = true;
         this.canvas.style.cursor = 'grab';
-        this.emit('space:down', { event });
+        this.emit(EditorEvents.SPACE_DOWN, { event });
       }
       event.preventDefault();
       return;
@@ -418,7 +427,7 @@ export class Editor extends EventEmitter {
       }
     }
     
-    this.emit('key:down', { event });
+    this.emit(EditorEvents.KEY_DOWN, { event });
   }
 
   private handleKeyUp(event: KeyboardEvent): void {
@@ -428,12 +437,12 @@ export class Editor extends EventEmitter {
       if (!this.isPanning) {
         this.canvas.style.cursor = 'default';
       }
-      this.emit('space:up', { event });
+      this.emit(EditorEvents.SPACE_UP, { event });
       return;
     }
     
-    this.hooks.trigger('key:up', event);
-    this.emit('key:up', { event });
+    this.hooks.trigger(EditorHooks.KEY_UP, event);
+    this.emit(EditorEvents.KEY_UP, { event });
   }
 
   // 获取鼠标在画布上的位置
@@ -443,25 +452,25 @@ export class Editor extends EventEmitter {
 
   // 对象操作
   addObject(object: BaseObject, layerId?: string, needRecord = true): void {
-    this.hooks.trigger('object:before-add', object);
+    this.hooks.trigger(EditorHooks.OBJECT_BEFORE_ADD, object);
     this.objectManager.addObject(object, layerId);
-    this.hooks.trigger('object:after-add', object);
+    this.hooks.trigger(EditorHooks.OBJECT_AFTER_ADD, object);
     if (needRecord) {
-      this.hooks.trigger('history:capture', 'Added object')
+      this.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Added object')
     }
     this.requestRender();
   }
 
   removeObject(object: BaseObject): void {
-    this.hooks.trigger('object:before-remove', object);
+    this.hooks.trigger(EditorHooks.OBJECT_BEFORE_REMOVE, object);
     
     if (this.selectedObject === object) {
       this.clearSelection();
     }
     
     this.objectManager.removeObject(object);
-    this.hooks.trigger('object:after-remove', object);
-    this.hooks.trigger('history:capture', 'Removed object')
+    this.hooks.trigger(EditorHooks.OBJECT_AFTER_REMOVE, object);
+    this.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Removed object')
     this.requestRender();
   }
 
@@ -471,11 +480,11 @@ export class Editor extends EventEmitter {
       return;
     }
     
-    this.hooks.trigger('object:before-select', object);
+    this.hooks.trigger(EditorHooks.OBJECT_BEFORE_SELECT, object);
     this.selectedObject = object;
     this.selectionBox.setTarget(object);
-    this.hooks.trigger('object:after-select', object);
-    this.emit('object:selected', { object });
+    this.hooks.trigger(EditorHooks.OBJECT_AFTER_SELECT, object);
+    this.emit(EditorEvents.OBJECT_SELECTED, { object });
   }
 
   clearSelection(): void {
@@ -486,7 +495,7 @@ export class Editor extends EventEmitter {
     const oldSelection = this.selectedObject;
     this.selectedObject = null;
     this.selectionBox.setTarget(null);
-    this.emit('object:deselected', { object: oldSelection });
+    this.emit(EditorEvents.OBJECT_DESELECTED, { object: oldSelection });
   }
 
   getSelectedObject(): BaseObject | null {
@@ -513,7 +522,7 @@ export class Editor extends EventEmitter {
   copySelected(): void {
     if (this.selectedObject) {
       this.clipboard = this.selectedObject.toJSON();
-      this.emit('object:copied', { object: this.selectedObject });
+      this.emit(EditorEvents.OBJECT_COPIED, { object: this.selectedObject });
     }
   }
 
@@ -521,7 +530,7 @@ export class Editor extends EventEmitter {
     if (this.clipboard) {
       // 这里需要对象工厂来创建具体的对象
       // 暂时不实现具体功能
-      this.emit('object:paste-attempted', { data: this.clipboard });
+      this.emit(EditorEvents.OBJECT_PASTE_ATTEMPTED, { data: this.clipboard });
     }
   }
 
@@ -530,7 +539,7 @@ export class Editor extends EventEmitter {
     if (this.history && this.history.isEnabled()) {
       this.history.undo();
     } else {
-      this.emit('edit:undo');
+      this.emit(EditorEvents.EDIT_UNDO, {});
     }
   }
 
@@ -538,7 +547,7 @@ export class Editor extends EventEmitter {
     if (this.history && this.history.isEnabled()) {
       this.history.redo();
     } else {
-      this.emit('edit:redo');
+      this.emit(EditorEvents.EDIT_REDO, {});
     }
   }
 
@@ -546,7 +555,7 @@ export class Editor extends EventEmitter {
   setTool(tool: string): void {
     const oldTool = this.currentTool;
     this.currentTool = tool;
-    this.emit('tool:changed', { oldTool, newTool: tool });
+    this.emit(EditorEvents.TOOL_CHANGED, { oldTool, newTool: tool });
   }
 
   getCurrentTool(): string {
@@ -572,7 +581,7 @@ export class Editor extends EventEmitter {
   // 空格键移动画布功能控制
   enableSpacePan(): void {
     this.options.enableSpacePan = true;
-    this.emit('space-pan:enabled');
+    this.emit(EditorEvents.SPACE_PAN_ENABLED, {});
   }
 
   disableSpacePan(): void {
@@ -580,7 +589,7 @@ export class Editor extends EventEmitter {
     this.isSpacePressed = false;
     this.isPanning = false;
     this.canvas.style.cursor = 'default';
-    this.emit('space-pan:disabled');
+    this.emit(EditorEvents.SPACE_PAN_DISABLED, {});
   }
 
   isSpacePanEnabled(): boolean {
@@ -794,7 +803,7 @@ export class Editor extends EventEmitter {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     // 触发渲染前钩子（在背景之后，用于绘制网格等背景元素）
-    this.hooks.trigger('render:before', this.ctx);
+    this.hooks.trigger(EditorHooks.RENDER_BEFORE, this.ctx);
     
     // 应用视口变换（内部已包含DPR缩放）
     this.viewport.applyTransform(this.ctx);
@@ -813,9 +822,9 @@ export class Editor extends EventEmitter {
     }
     
     // 触发渲染后钩子
-    this.hooks.trigger('render:after', this.ctx);
+    this.hooks.trigger(EditorHooks.RENDER_AFTER, this.ctx);
     
-    this.emit('editor:rendered');
+    this.emit(EditorEvents.EDITOR_RENDERED, {});
   }
 
   // 视口操作
@@ -905,9 +914,10 @@ export class Editor extends EventEmitter {
       }
     }
     
-    if (state.currentTool) {
-      this.setTool(state.currentTool);
-    }
+    // 不需要进行工具切换
+    // if (state.currentTool) {
+    //   this.setTool(state.currentTool);
+    // }
     
     this.requestRender();
   }
@@ -940,11 +950,13 @@ export class Editor extends EventEmitter {
     
     // 移除画布
     this.canvas.remove();
+
+    this.unbindEvents();
     
     // 清理事件
     this.removeAllListeners();
     
-    this.emit('editor:destroyed');
+    this.emit(EditorEvents.EDITOR_DESTROYED, {});
   }
 
   // 获取画布元素
@@ -979,17 +991,19 @@ export class Editor extends EventEmitter {
     } else {
       this.history.enable();
     }
-    this.emit('history:enabled');
+    this.emit(EditorEvents.HISTORY_ENABLED, {});
   }
 
   disableHistory(): void {
     if (this.history) {
       this.history.disable();
     }
-    this.emit('history:disabled');
+    this.emit(EditorEvents.HISTORY_DISABLED, {});
   }
 
   isHistoryEnabled(): boolean {
     return !!this.history && this.history.isEnabled();
   }
 }
+
+export type EditorType = Editor;

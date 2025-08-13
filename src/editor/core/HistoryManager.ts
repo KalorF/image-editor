@@ -1,6 +1,7 @@
 // 内置历史记录管理器 - 撤销重做功能
 import { EventEmitter } from './EventEmitter';
 import type { Editor } from '../Editor';
+import { EditorHooks, EditorEvents } from '../types';
 import { ImageObject } from '../objects/ImageObject';
 
 export interface HistoryOptions {
@@ -132,12 +133,12 @@ export class HistoryManager extends EventEmitter {
       this.currentIndex--;
     }
 
-    this.editor.emit('history:state-captured', {
+    this.editor.emit(EditorEvents.HISTORY_STATE_CAPTURED, {
       state,
       canUndo: this.canUndo(),
       canRedo: this.canRedo()
     });
-    this.emit('history:state-captured', { state });
+    this.emit(EditorEvents.HISTORY_STATE_CAPTURED, { state });
   }
 
   undo(): boolean {
@@ -157,12 +158,12 @@ export class HistoryManager extends EventEmitter {
       state = this.initialState!;
     }
     this.applyState(state);
-    this.editor.emit('history:undo', {
+    this.editor.emit(EditorEvents.HISTORY_UNDO, {
       state,
       canUndo: this.canUndo(),
       canRedo: this.canRedo()
     });
-    this.emit('history:undo', { state });
+    this.emit(EditorEvents.HISTORY_UNDO, { state });
     return true;
   }
 
@@ -181,12 +182,12 @@ export class HistoryManager extends EventEmitter {
     const state = this.history[this.currentIndex];
     this.applyState(state);
 
-    this.editor.emit('history:redo', {
+    this.editor.emit(EditorEvents.HISTORY_REDO, {
       state,
       canUndo: this.canUndo(),
       canRedo: this.canRedo()
     });
-    this.emit('history:redo', { state });
+    this.emit(EditorEvents.HISTORY_REDO, { state });
     return true;
   }
 
@@ -206,8 +207,8 @@ export class HistoryManager extends EventEmitter {
     this.history = [];
     this.currentIndex = -1;
     this.lastCaptureTime = 0;
-    this.editor.emit('history:cleared');
-    this.emit('history:cleared');
+    this.editor.emit(EditorEvents.HISTORY_CLEARED, {});
+    this.emit(EditorEvents.HISTORY_CLEARED, {});
   }
 
   getHistory(): Array<{ timestamp: number; description: string; isCurrent: boolean }>{
@@ -228,13 +229,13 @@ export class HistoryManager extends EventEmitter {
     this.currentIndex = index;
     const state = this.history[index];
     this.applyState(state);
-    this.editor.emit('history:goto', {
+    this.editor.emit(EditorEvents.HISTORY_GOTO, {
       state,
       index,
       canUndo: this.canUndo(),
       canRedo: this.canRedo()
     });
-    this.emit('history:goto', { state, index });
+    this.emit(EditorEvents.HISTORY_GOTO, { state, index });
     return true;
   }
 
@@ -344,7 +345,7 @@ export class HistoryManager extends EventEmitter {
 
   private bindHistoryHooks(): void {
     // 插件可以通过 hooks 记录历史
-    this.editor.hooks.after('history:capture', (description: string) => {
+    this.editor.hooks.after(EditorHooks.HISTORY_CAPTURE, (description: string) => {
       if (typeof description === 'string' && description.length > 0) {
         this.captureState(description);
       }

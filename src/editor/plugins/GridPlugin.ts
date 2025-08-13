@@ -1,6 +1,7 @@
 // 网格插件 - 显示网格背景
 import type { Plugin } from '../types';
-import { Editor } from '../Editor';
+import { EditorHooks } from '../types';
+import type { Editor } from '../Editor';
 
 export interface GridPluginOptions {
   size?: number;
@@ -15,7 +16,7 @@ export interface GridPluginOptions {
   shadowColor?: string;
 }
 
-export class GridPlugin implements Plugin {
+export class GridPlugin implements Plugin<Editor> {
   name = 'grid';
   version = '1.0.0';
   
@@ -41,7 +42,7 @@ export class GridPlugin implements Plugin {
     this.editor = editor;
     
     // 注册渲染后钩子来绘制网格（在视口变换应用之后）
-    editor.hooks.before('render:before', this.renderGrid.bind(this), 100);
+    editor.hooks.before(EditorHooks.RENDER_BEFORE, this.renderGrid.bind(this), 100);
     
     // 添加插件方法到编辑器
     (editor as any).grid = {
@@ -61,7 +62,7 @@ export class GridPlugin implements Plugin {
 
   uninstall(editor: Editor): void {
     // 移除钩子
-    editor.hooks.removeHook('render:before', this.renderGrid);
+    editor.hooks.removeHook(EditorHooks.RENDER_BEFORE, this.renderGrid);
     
     // 移除插件方法
     delete (editor as any).grid;

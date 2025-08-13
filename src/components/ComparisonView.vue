@@ -66,7 +66,6 @@ const initializeEditors = async () => {
           selectionColor: '#00FF00',
           selectionOpacity: 0.3,
           mode: 'add',
-          debug: true // 启用调试模式
         })
       ]
     });
@@ -88,7 +87,6 @@ const initializeEditors = async () => {
           selectionColor: '#00FF00',
           selectionOpacity: 0.3,
           mode: 'add',
-          debug: true // 启用调试模式
         })
       ]
     });

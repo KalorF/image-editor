@@ -1,5 +1,6 @@
 // 图像对象类
 import { BaseObject } from './BaseObject';
+import { EditorEvents } from '../types';
 
 export interface ImageObjectOptions {
   src?: string;
@@ -48,12 +49,12 @@ export class ImageObject extends BaseObject {
       this.width = this.image.naturalWidth;
       this.height = this.image.naturalHeight;
       
-      this.emit('image:loaded', { object: this, image: this.image });
+      this.emit(EditorEvents.IMAGE_LOADED, { object: this, image: this.image });
     };
 
     this.image.onerror = (error) => {
       console.error('Failed to load image:', this.src, error);
-      this.emit('image:error', { object: this, error, src: this.src });
+      this.emit(EditorEvents.IMAGE_ERROR, { object: this, error, src: this.src });
     };
 
     // 检查图像是否已经加载完成（从缓存中）
@@ -66,7 +67,7 @@ export class ImageObject extends BaseObject {
       
       // 使用 setTimeout 确保事件监听器已经设置
       setTimeout(() => {
-        this.emit('image:loaded', { object: this, image: this.image });
+        this.emit(EditorEvents.IMAGE_LOADED, { object: this, image: this.image });
       }, 0);
     } else {
       // 图像未加载，设置源开始加载
@@ -171,12 +172,12 @@ export class ImageObject extends BaseObject {
   // 设置mask属性
   public setMaskOpacity(opacity: number): void {
     this.maskOpacity = Math.max(0, Math.min(1, opacity));
-    this.emit('mask:opacity-changed', { object: this, opacity: this.maskOpacity });
+    this.emit(EditorEvents.MASK_OPACITY_CHANGED, { object: this, opacity: this.maskOpacity });
   }
 
   public setMaskColor(color: string): void {
     this.maskColor = color;
-    this.emit('mask:color-changed', { object: this, color: this.maskColor });
+    this.emit(EditorEvents.MASK_COLOR_CHANGED, { object: this, color: this.maskColor });
   }
 
   // 获取mask数据
@@ -207,7 +208,7 @@ export class ImageObject extends BaseObject {
     try {
       this.maskCtx.putImageData(imageData, 0, 0);
       this.hasMask = true;
-      this.emit('mask:data-changed', { object: this, imageData });
+      this.emit(EditorEvents.MASK_DATA_CHANGED, { object: this, imageData });
     } catch (error) {
       console.error('Error setting mask data:', error);
     }
@@ -218,7 +219,7 @@ export class ImageObject extends BaseObject {
     if (this.maskCanvas && this.maskCtx) {
       this.maskCtx.clearRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
       this.hasMask = false;
-      this.emit('mask:cleared', { object: this });
+      this.emit(EditorEvents.MASK_CLEARED, { object: this });
     }
   }
 
@@ -262,7 +263,7 @@ export class ImageObject extends BaseObject {
   addFilter(filter: string): void {
     if (!this.filters.includes(filter)) {
       this.filters.push(filter);
-      this.emit('image:filter-added', { object: this, filter });
+      this.emit(EditorEvents.IMAGE_FILTER_ADDED, { object: this, filter });
     }
   }
 
@@ -271,20 +272,20 @@ export class ImageObject extends BaseObject {
     const index = this.filters.indexOf(filter);
     if (index !== -1) {
       this.filters.splice(index, 1);
-      this.emit('image:filter-removed', { object: this, filter });
+      this.emit(EditorEvents.IMAGE_FILTER_REMOVED, { object: this, filter });
     }
   }
 
   // 清除所有滤镜
   clearFilters(): void {
     this.filters = [];
-    this.emit('image:filters-cleared', { object: this });
+    this.emit(EditorEvents.IMAGE_FILTERS_CLEARED, { object: this });
   }
 
   // 设置滤镜
   setFilters(filters: string[]): void {
     this.filters = [...filters];
-    this.emit('image:filters-changed', { object: this, filters: this.filters });
+    this.emit(EditorEvents.IMAGE_FILTERS_CHANGED, { object: this, filters: this.filters });
   }
 
   // 获取图像数据
@@ -328,7 +329,7 @@ export class ImageObject extends BaseObject {
       this.width = imageData.width;
       this.height = imageData.height;
       
-      this.emit('image:data-changed', { object: this, imageData });
+      this.emit(EditorEvents.IMAGE_DATA_CHANGED, { object: this, imageData });
     } catch (error) {
       console.error('Error setting image data:', error);
     }
@@ -359,7 +360,7 @@ export class ImageObject extends BaseObject {
       this.width = width;
       this.height = height;
       
-      this.emit('image:cropped', { object: this, cropRect: { x, y, width, height } });
+      this.emit(EditorEvents.IMAGE_CROPPED, { object: this, cropRect: { x, y, width, height } });
     } catch (error) {
       console.error('Error cropping image:', error);
     }

@@ -1,6 +1,7 @@
 // 视口管理器 - 负责画布缩放和移动
 import type { Point } from '../types';
 import { EventEmitter } from './EventEmitter';
+import { EditorEvents } from '../types';
 import { MathUtils } from '../utils/math';
 
 export interface ViewportState {
@@ -152,7 +153,7 @@ export class Viewport extends EventEmitter {
     this.canvas.width = this._width * devicePixelRatio;
     this.canvas.height = this._height * devicePixelRatio;
     
-    this.emit('viewport:resize', { width: this._width, height: this._height });
+    this.emit(EditorEvents.VIEWPORT_RESIZE, { width: this._width, height: this._height });
   }
 
   // 平移视口
@@ -160,7 +161,7 @@ export class Viewport extends EventEmitter {
     this._panX += deltaX;
     this._panY += deltaY;
     this.updateTransform();
-    this.emit('viewport:pan', { x: this._panX, y: this._panY });
+    this.emit(EditorEvents.VIEWPORT_PAN, { x: this._panX, y: this._panY });
   }
 
   // 设置缩放
@@ -172,7 +173,7 @@ export class Viewport extends EventEmitter {
     } else {
       this._zoom = newZoom;
       this.updateTransform();
-      this.emit('viewport:zoom', { zoom: this._zoom });
+      this.emit(EditorEvents.VIEWPORT_ZOOM, { zoom: this._zoom });
     }
   }
 
@@ -196,7 +197,7 @@ export class Viewport extends EventEmitter {
     this._panY = screenPoint.y - (screenPoint.y - this._panY) * zoomRatio;
     
     this.updateTransform();
-    this.emit('viewport:zoom', { zoom: this._zoom, center: worldPoint });
+    this.emit(EditorEvents.VIEWPORT_ZOOM, { zoom: this._zoom, center: worldPoint });
   }
 
   // 适应画布
@@ -209,7 +210,7 @@ export class Viewport extends EventEmitter {
     this._zoom = 1;
     
     this.updateTransform();
-    this.emit('viewport:fit');
+    this.emit(EditorEvents.VIEWPORT_FIT, {});
   }
 
   // 更新变换矩阵
@@ -279,7 +280,7 @@ export class Viewport extends EventEmitter {
     }
     
     this.updateTransform();
-    this.emit('viewport:state-changed', this.getState());
+    this.emit(EditorEvents.VIEWPORT_STATE_CHANGED, this.getState());
   }
 
   // 设置缩放范围

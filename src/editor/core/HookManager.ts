@@ -1,21 +1,35 @@
 // 钩子管理器
-import type { HookCallback } from '../types';
+import type { HookCallback, TypedHookManager, EditorHookType, TypedHookCallback, HookParameterMap } from '../types';
 
 interface Hook {
   callback: HookCallback;
   priority: number;
 }
 
-export class HookManager {
+export class HookManager implements TypedHookManager {
   private beforeHooks: Map<string, Hook[]> = new Map();
   private afterHooks: Map<string, Hook[]> = new Map();
 
-  // 注册前置钩子
+  // 类型安全的注册前置钩子
+  before<T extends EditorHookType>(
+    hookName: T, 
+    callback: TypedHookCallback<T>, 
+    priority?: number
+  ): void;
+  // 向后兼容的注册前置钩子
+  before(hookName: string, callback: HookCallback, priority?: number): void;
   before(hookName: string, callback: HookCallback, priority: number = 0): void {
     this.addHook(this.beforeHooks, hookName, callback, priority);
   }
 
-  // 注册后置钩子
+  // 类型安全的注册后置钩子
+  after<T extends EditorHookType>(
+    hookName: T, 
+    callback: TypedHookCallback<T>, 
+    priority?: number
+  ): void;
+  // 向后兼容的注册后置钩子
+  after(hookName: string, callback: HookCallback, priority?: number): void;
   after(hookName: string, callback: HookCallback, priority: number = 0): void {
     this.addHook(this.afterHooks, hookName, callback, priority);
   }
@@ -58,11 +72,14 @@ export class HookManager {
     }
   }
 
-  // 触发钩子
-  trigger(hookName: string, ...args: any[]): {
-    beforeResults: any[];
-    afterResults: any[];
-  } {
+  // 类型安全的触发钩子
+  trigger<T extends EditorHookType>(
+    hookName: T, 
+    ...args: HookParameterMap[T]
+  ): { beforeResults: any[]; afterResults: any[] };
+  // 向后兼容的触发钩子
+  trigger(hookName: string, ...args: any[]): { beforeResults: any[]; afterResults: any[] };
+  trigger(hookName: string, ...args: any[]): { beforeResults: any[]; afterResults: any[] } {
     const beforeResults = this.executeHooks(this.beforeHooks, hookName, ...args);
     const afterResults = this.executeHooks(this.afterHooks, hookName, ...args);
     

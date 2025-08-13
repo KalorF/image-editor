@@ -1,6 +1,6 @@
 // 基于OBB的选择框控制器
 import type { Point, ControlPoint, OBB } from '../types';
-import { ControlPointType } from '../types';
+import { ControlPointType, EditorEvents } from '../types';
 import { BaseObject } from '../objects/BaseObject';
 import { MathUtils } from '../utils/math';
 import { EventEmitter } from '../core/EventEmitter';
@@ -59,7 +59,7 @@ export class SelectionBox extends EventEmitter {
       this.controlPoints = [];
     }
     
-    this.emit('selection:changed', { oldTarget, newTarget: target });
+    this.emit(EditorEvents.SELECTION_CHANGED, { oldTarget, newTarget: target });
   }
 
   // 获取当前选中的对象
@@ -364,7 +364,7 @@ export class SelectionBox extends EventEmitter {
       this.dragControlPoint = type;
     }
 
-    this.emit('drag:start', { 
+    this.emit(EditorEvents.DRAG_START, { 
       target: this.target, 
       type: this.dragType, 
       point: point 
@@ -425,7 +425,7 @@ export class SelectionBox extends EventEmitter {
     }
 
     this.updateControlPoints();
-    this.emit('drag:move', { 
+    this.emit(EditorEvents.DRAG_MOVE, { 
       target: this.target, 
       type: this.dragType, 
       point: point 
@@ -629,7 +629,7 @@ export class SelectionBox extends EventEmitter {
       return false;
     }
 
-    this.emit('drag:end', { 
+    this.emit(EditorEvents.DRAG_END, { 
       target: this.target, 
       type: dragType 
     });

@@ -1,7 +1,8 @@
 // 颜色选区插件 - 通过圆形选区和洪水算法进行颜色选择
 import type { Plugin, Point } from '../types';
-import { Editor } from '../Editor';
+import { EditorHooks, EditorEvents } from '../types';
 import { ImageObject } from '../objects/ImageObject';
+import type { Editor } from '../Editor';
 
 
 export interface ColorSelectionPluginOptions {
@@ -10,10 +11,9 @@ export interface ColorSelectionPluginOptions {
   selectionColor?: string; // 选区显示颜色
   selectionOpacity?: number; // 选区透明度
   mode?: 'add' | 'remove'; // 添加或去除选区模式
-  debug?: boolean; // 调试模式
 }
 
-export class ColorSelectionPlugin implements Plugin {
+export class ColorSelectionPlugin implements Plugin<Editor> {
   name = 'colorSelection';
   version = '1.0.0';
   
@@ -60,7 +60,6 @@ export class ColorSelectionPlugin implements Plugin {
       selectionColor: '#00FF00',
       selectionOpacity: 0.5, // 调整为与 MaskBrushPlugin 一致的透明度
       mode: 'add',
-      debug: false,
       ...options
     };
   }
@@ -72,7 +71,7 @@ export class ColorSelectionPlugin implements Plugin {
     this.registerEventHooks();
     
     // 注册渲染钩子，用于绘制实时圆形选区
-    this.editor.hooks.after('render:after', this.drawHook);
+    this.editor.hooks.after(EditorHooks.RENDER_AFTER, this.drawHook);
 
     // 初始化 worker（Vite 支持 new URL(_, import.meta.url) 导入）
     try {
@@ -80,10 +79,9 @@ export class ColorSelectionPlugin implements Plugin {
       const url = new URL('./workers/colorSelectionWorker.ts', import.meta.url);
       this.worker = new Worker(url, { type: 'module' });
       this.worker.onmessage = this.onWorkerMessage;
-    } catch (e) {
-      this.worker = null; // 不支持则回退主线程
-      if (this.options.debug) console.warn('ColorSelection worker disabled or failed to init:', e);
-    }
+          } catch {
+        this.worker = null; // 不支持则回退主线程
+      }
     
     // 添加插件方法到编辑器
     (editor as any).colorSelection = {
@@ -107,7 +105,7 @@ export class ColorSelectionPlugin implements Plugin {
     this.unregisterEventHooks();
     this.clearSelection();
     
-    this.editor.hooks.removeHook('render:after', this.drawHook);
+    this.editor.hooks.removeHook(EditorHooks.RENDER_AFTER, this.drawHook, 'after');
     
     if (this.worker) {
       this.worker.terminate();
@@ -119,18 +117,18 @@ export class ColorSelectionPlugin implements Plugin {
 
   private registerEventHooks(): void {
     // 注册鼠标事件钩子
-    this.editor.hooks.before('mouse:down', this.onMouseDown);
-    this.editor.hooks.before('mouse:move', this.onMouseMove);
-    this.editor.hooks.before('mouse:up', this.onMouseUp);
-    this.editor.hooks.before('mouse:leave', this.onMouseLeave);
+    this.editor.hooks.before(EditorHooks.MOUSE_DOWN, this.onMouseDown);
+    this.editor.hooks.before(EditorHooks.MOUSE_MOVE, this.onMouseMove);
+    this.editor.hooks.before(EditorHooks.MOUSE_UP, this.onMouseUp);
+    this.editor.hooks.before(EditorHooks.MOUSE_LEAVE, this.onMouseLeave);
   }
 
   private unregisterEventHooks(): void {
     // 移除鼠标事件钩子
-    this.editor.hooks.removeHook('mouse:down', this.onMouseDown);
-    this.editor.hooks.removeHook('mouse:move', this.onMouseMove);
-    this.editor.hooks.removeHook('mouse:up', this.onMouseUp);
-    this.editor.hooks.removeHook('mouse:leave', this.onMouseLeave);
+    this.editor.hooks.removeHook(EditorHooks.MOUSE_DOWN, this.onMouseDown);
+    this.editor.hooks.removeHook(EditorHooks.MOUSE_MOVE, this.onMouseMove);
+    this.editor.hooks.removeHook(EditorHooks.MOUSE_UP, this.onMouseUp);
+    this.editor.hooks.removeHook(EditorHooks.MOUSE_LEAVE, this.onMouseLeave);
   }
 
   private onMouseDown = (worldPoint: Point, event: MouseEvent) => {
@@ -206,7 +204,7 @@ export class ColorSelectionPlugin implements Plugin {
       this.performColorSelection();
       
       // 触发选择完成事件（预先发出，最终结果异步到达）
-      this.editor.emit('colorSelection:completed', { 
+      this.editor.emit(EditorEvents.COLOR_SELECTION_COMPLETED, { 
         imageObject: this.currentImageObject,
         tolerance: this.options.tolerance 
       });
@@ -428,11 +426,10 @@ export class ColorSelectionPlugin implements Plugin {
     try {
       this.worker.postMessage(msg);
       this.lastPreviewParams = { cx: centerLow.x, cy: centerLow.y, r: radiusLow, tolerance: tol };
-    } catch (e) {
-      // Worker 通信失败，回退主线程
-      if (this.options.debug) console.warn('Worker postMessage failed for preview:', e);
-      this.computeLivePreview();
-    }
+          } catch {
+        // Worker 通信失败，回退主线程
+        this.computeLivePreview();
+      }
   }
 
   private computeLivePreview(): void {
@@ -524,12 +521,6 @@ export class ColorSelectionPlugin implements Plugin {
       Math.pow(viewportCurrent.y - viewportStart.y, 2)
     );
     
-    // 如果半径太小就不绘制
-    if (viewportRadius < 5) {
-      ctx.restore();
-      return;
-    }
-    
     // 使用屏幕坐标绘制
     const viewportCenter = viewportStart;
     
@@ -598,7 +589,7 @@ export class ColorSelectionPlugin implements Plugin {
     this.createSelectionCanvasFromMask(finalMask, highResImageData.width, highResImageData.height, this.currentImageObject);
     
     // 记录历史（插件影响对象）
-    this.editor.hooks.trigger('history:capture', 'Color selection applied');
+          this.editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Color selection applied');
 
     this.editor.requestRender();
   }
@@ -649,11 +640,10 @@ export class ColorSelectionPlugin implements Plugin {
       try {
         this.worker.postMessage(msg);
         return; // 等待 worker 回调应用结果
-      } catch (e) {
-        // Worker 通信失败，回退主线程
-        if (this.options.debug) console.warn('Worker postMessage failed for final selection:', e);
-        this.pendingFinalTarget = null;
-      }
+              } catch {
+          // Worker 通信失败，回退主线程
+          this.pendingFinalTarget = null;
+        }
     }
     
     // 主线程执行洪水算法（高分辨率）
@@ -931,7 +921,7 @@ export class ColorSelectionPlugin implements Plugin {
   // 公共方法
   public enable(): void {
     this.options.enabled = true;
-    this.editor.emit('colorSelection:enabled');
+    this.editor.emit(EditorEvents.COLOR_SELECTION_ENABLED, {});
   }
 
   public disable(): void {
@@ -950,28 +940,28 @@ export class ColorSelectionPlugin implements Plugin {
     this.pendingPreviewJobId = null;
     this.pendingFinalJobId = null;
     this.pendingFinalTarget = null;
-    this.editor.emit('colorSelection:disabled');
+    this.editor.emit(EditorEvents.COLOR_SELECTION_DISABLED, {});
   }
 
   public setTolerance(tolerance: number): void {
     this.options.tolerance = Math.max(0, Math.min(255, tolerance));
     this.lastPreviewParams = null; // 容差改变，强制刷新
-    this.editor.emit('colorSelection:tolerance-changed', { tolerance: this.options.tolerance });
+    this.editor.emit(EditorEvents.COLOR_SELECTION_TOLERANCE_CHANGED, { tolerance: this.options.tolerance });
   }
 
   public setSelectionColor(color: string): void {
     this.options.selectionColor = color;
-    this.editor.emit('colorSelection:color-changed', { color });
+    this.editor.emit(EditorEvents.COLOR_SELECTION_COLOR_CHANGED, { color });
   }
 
   public setSelectionOpacity(opacity: number): void {
     this.options.selectionOpacity = Math.max(0, Math.min(1, opacity));
-    this.editor.emit('colorSelection:opacity-changed', { opacity: this.options.selectionOpacity });
+    this.editor.emit(EditorEvents.COLOR_SELECTION_OPACITY_CHANGED, { opacity: this.options.selectionOpacity });
   }
 
   public setMode(mode: 'add' | 'remove'): void {
     this.options.mode = mode;
-    this.editor.emit('colorSelection:mode-changed', { mode });
+    this.editor.emit(EditorEvents.COLOR_SELECTION_MODE_CHANGED, { mode });
   }
 
   public clearSelection(): void {
@@ -998,8 +988,8 @@ export class ColorSelectionPlugin implements Plugin {
     this.pendingFinalTarget = null;
 
     this.editor.requestRender();
-    this.editor.emit('colorSelection:cleared');
-    this.editor.hooks.trigger('history:capture', 'Color selection cleared');
+    this.editor.emit(EditorEvents.COLOR_SELECTION_CLEARED, {});
+    this.editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Color selection cleared');
   }
 
   public getSelectionMask(): Uint8Array | null {

@@ -210,7 +210,6 @@ watch(viewMode, async (newMode, oldMode) => {
 
 // 添加示例图像
 const addSampleImages = () => {
-  console.log('添加示例图像', editor);
   if (!editor) return;
 
   // 创建一个彩色矩形作为示例
@@ -234,9 +233,7 @@ const addSampleImages = () => {
 
   const dataURL = canvas.toDataURL();
   
-  editor.importByJson([{src: dataURL, x: 100, y: 100, type: 'image'}]).then((imageObj) => {
-    console.log('示例图像添加成功:', imageObj);
-  });
+  editor.importByJson([{src: dataURL, x: 100, y: 100, type: 'image'}])
 };
 
 // 工具栏功能
