@@ -42,12 +42,26 @@ export interface EditorEvent {
 
 export type EventHandler = (event: EditorEvent) => void;
 
+export enum EditorRenderType {
+  FULL = 'full',
+  TRANSFORM_ONLY = 'transform',
+}
+
 // 插件接口 - 使用泛型避免循环依赖
 export interface Plugin<T = any> {
   name: string;
   version: string;
   install: (editor: T) => void;
   uninstall?: (editor: T) => void;
+}
+
+export type EditorTool = 'maskBrush' | 'maskRegion' | 'select' | 'colorSelection' | '';
+
+export const enum EditorTools {
+  MASK_BRUSH = 'maskBrush',
+  MASK_REGION = 'maskRegion',
+  SELECT = 'select',
+  COLOR_SELECTION = 'colorSelection',
 }
 
 // ========== 钩子系统类型定义 ==========
@@ -62,11 +76,11 @@ export const enum EditorHooks {
   MOUSE_ENTER = 'mouse:enter',
   MOUSE_CLICK = 'mouse:click',
   MOUSE_DOUBLE_CLICK = 'mouse:double-click',
-  
+
   // 键盘事件钩子
   KEY_DOWN = 'key:down',
   KEY_UP = 'key:up',
-  
+
   // 对象操作钩子
   OBJECT_BEFORE_ADD = 'object:before-add',
   OBJECT_AFTER_ADD = 'object:after-add',
@@ -76,13 +90,15 @@ export const enum EditorHooks {
   OBJECT_AFTER_SELECT = 'object:after-select',
   OBJECT_DRAG_MOVE = 'object:drag:move',
   OBJECT_DRAG_END = 'object:drag:end',
-  
+
   // 渲染钩子
   RENDER_BEFORE = 'render:before',
   RENDER_AFTER = 'render:after',
-  
+
+  RESIZE_CANVAS = 'resize:canvas',
+
   // 历史管理钩子
-  HISTORY_CAPTURE = 'history:capture'
+  HISTORY_CAPTURE = 'history:capture',
 }
 
 // 钩子参数类型映射
@@ -106,7 +122,8 @@ export interface HookParameterMap {
   [EditorHooks.OBJECT_DRAG_END]: [event: any];
   [EditorHooks.RENDER_BEFORE]: [ctx: CanvasRenderingContext2D];
   [EditorHooks.RENDER_AFTER]: [ctx: CanvasRenderingContext2D];
-  [EditorHooks.HISTORY_CAPTURE]: [description: string];
+  [EditorHooks.RESIZE_CANVAS]: [ctx: CanvasRenderingContext2D];
+  [EditorHooks.HISTORY_CAPTURE]: [description: string, force: boolean, callback?: () => void];
 }
 
 // 钩子类型联合类型
@@ -121,22 +138,22 @@ export type HookCallback = (...args: any[]) => any;
 // 类型安全的钩子管理器接口
 export interface TypedHookManager {
   before<T extends EditorHookType>(
-    hookName: T, 
-    callback: TypedHookCallback<T>, 
-    priority?: number
+    hookName: T,
+    callback: TypedHookCallback<T>,
+    priority?: number,
   ): void;
-  
+
   after<T extends EditorHookType>(
-    hookName: T, 
-    callback: TypedHookCallback<T>, 
-    priority?: number
+    hookName: T,
+    callback: TypedHookCallback<T>,
+    priority?: number,
   ): void;
-  
+
   trigger<T extends EditorHookType>(
-    hookName: T, 
+    hookName: T,
     ...args: HookParameterMap[T]
   ): { beforeResults: any[]; afterResults: any[] };
-  
+
   // 向后兼容的方法
   before(hookName: string, callback: HookCallback, priority?: number): void;
   after(hookName: string, callback: HookCallback, priority?: number): void;
@@ -157,7 +174,7 @@ export interface RenderObject {
   transform: Transform;
   visible: boolean;
   selectable: boolean;
-  
+
   render(ctx: CanvasRenderingContext2D): void;
   getOBB(): OBB;
   hitTest(point: Point): boolean;
@@ -174,7 +191,7 @@ export const enum ControlPointType {
   MiddleBottom = 'mb',
   MiddleLeft = 'ml',
   MiddleRight = 'mr',
-  Rotation = 'rotation'
+  Rotation = 'rotation',
 }
 
 export interface ControlPoint {
@@ -189,9 +206,9 @@ export interface ControlPoint {
 export const enum EditorEvents {
   // 编辑器核心事件
   EDITOR_INITIALIZED = 'editor:initialized',
-  EDITOR_RENDERED = 'editor:rendered', 
+  EDITOR_RENDERED = 'editor:rendered',
   EDITOR_DESTROYED = 'editor:destroyed',
-  
+
   // 对象操作事件
   OBJECT_ADDED = 'object:added',
   OBJECT_REMOVED = 'object:removed',
@@ -204,14 +221,15 @@ export const enum EditorEvents {
   OBJECT_COPIED = 'object:copied',
   OBJECT_PASTE_ATTEMPTED = 'object:paste-attempted',
   OBJECT_Z_ORDER_CHANGED = 'object:z-order-changed',
-  
+  OBJECT_UPDATED = 'object:updated',
+
   // 视口事件
   VIEWPORT_ZOOM = 'viewport:zoom',
   VIEWPORT_PAN = 'viewport:pan',
   VIEWPORT_RESIZE = 'viewport:resize',
   VIEWPORT_FIT = 'viewport:fit',
   VIEWPORT_STATE_CHANGED = 'viewport:state-changed',
-  
+
   // 鼠标/键盘交互事件
   MOUSE_DOWN = 'mouse:down',
   MOUSE_MOVE = 'mouse:move',
@@ -224,7 +242,7 @@ export const enum EditorEvents {
   KEY_UP = 'key:up',
   SPACE_DOWN = 'space:down',
   SPACE_UP = 'space:up',
-  
+
   // 拖拽事件
   DRAG_START = 'drag:start',
   DRAG_MOVE = 'drag:move',
@@ -232,33 +250,34 @@ export const enum EditorEvents {
   OBJECT_DRAG_START = 'object:drag:start',
   OBJECT_DRAG_MOVE = 'object:drag:move',
   OBJECT_DRAG_END = 'object:drag:end',
-  
+
   // 平移事件
   PAN_START = 'pan:start',
   PAN_MOVE = 'pan:move',
   PAN_END = 'pan:end',
   SPACE_PAN_ENABLED = 'space-pan:enabled',
   SPACE_PAN_DISABLED = 'space-pan:disabled',
-  
+
   // 选择事件
   SELECTION_CHANGED = 'selection:changed',
-  
+
   // 历史管理事件
   HISTORY_STATE_CAPTURED = 'history:state-captured',
+  HISTORY_STATE_CHANGED = 'history:state-changed',
   HISTORY_UNDO = 'history:undo',
   HISTORY_REDO = 'history:redo',
   HISTORY_CLEARED = 'history:cleared',
   HISTORY_GOTO = 'history:goto',
   HISTORY_ENABLED = 'history:enabled',
   HISTORY_DISABLED = 'history:disabled',
-  
+
   // 插件事件
   PLUGIN_REGISTERED = 'plugin:registered',
   PLUGIN_BEFORE_INSTALL = 'plugin:before-install',
   PLUGIN_INSTALLED = 'plugin:installed',
   PLUGIN_BEFORE_UNINSTALL = 'plugin:before-uninstall',
   PLUGIN_UNINSTALLED = 'plugin:uninstalled',
-  
+
   // 图像相关事件
   IMAGE_LOADED = 'image:loaded',
   IMAGE_ERROR = 'image:error',
@@ -268,14 +287,15 @@ export const enum EditorEvents {
   IMAGE_FILTERS_CHANGED = 'image:filters-changed',
   IMAGE_DATA_CHANGED = 'image:data-changed',
   IMAGE_CROPPED = 'image:cropped',
-  
+
   // 蒙版相关事件
   MASK_OPACITY_CHANGED = 'mask:opacity-changed',
   MASK_COLOR_CHANGED = 'mask:color-changed',
   MASK_DATA_CHANGED = 'mask:data-changed',
   MASK_CLEARED = 'mask:cleared',
   MASK_CHANGED = 'mask:changed',
-  
+  MASK_BRUSH_DRAW = 'mask:brush-draw',
+
   // 图层事件
   LAYER_CREATED = 'layer:created',
   LAYER_REMOVED = 'layer:removed',
@@ -285,12 +305,12 @@ export const enum EditorEvents {
   LAYER_NAME_CHANGED = 'layer:name-changed',
   OBJECT_LAYER_CHANGED = 'object:layer-changed',
   OBJECTS_CLEARED = 'objects:cleared',
-  
+
   // 工具和编辑操作事件
   TOOL_CHANGED = 'tool:changed',
   EDIT_UNDO = 'edit:undo',
   EDIT_REDO = 'edit:redo',
-  
+
   // 颜色选择插件事件
   COLOR_SELECTION_COMPLETED = 'colorSelection:completed',
   COLOR_SELECTION_ENABLED = 'colorSelection:enabled',
@@ -300,14 +320,26 @@ export const enum EditorEvents {
   COLOR_SELECTION_OPACITY_CHANGED = 'colorSelection:opacity-changed',
   COLOR_SELECTION_MODE_CHANGED = 'colorSelection:mode-changed',
   COLOR_SELECTION_CLEARED = 'colorSelection:cleared',
-  
+
   // 蒙版画笔插件事件
   MASK_BRUSH_ENABLED = 'maskBrush:enabled',
   MASK_BRUSH_DISABLED = 'maskBrush:disabled',
   MASK_BRUSH_SIZE_CHANGED = 'maskBrush:brush-size-changed',
   MASK_BRUSH_MODE_CHANGED = 'maskBrush:mode-changed',
   MASK_BRUSH_OPACITY_CHANGED = 'maskBrush:opacity-changed',
-  MASK_BRUSH_COLOR_CHANGED = 'maskBrush:color-changed'
+  MASK_BRUSH_COLOR_CHANGED = 'maskBrush:color-changed',
+
+  // 自动蒙版插件事件
+  MASK_REGION_ENABLED = 'maskRegion:enabled',
+  MASK_REGION_DISABLED = 'maskRegion:disabled',
+  MASK_REGION_LOADED = 'maskRegion:loaded',
+  MASK_REGION_CLEARED = 'maskRegion:cleared',
+  MASK_REGION_HOVER = 'maskRegion:hover',
+  MASK_REGION_APPLIED = 'maskRegion:applied',
+  MASK_REGION_UNAPPLIED = 'maskRegion:unapplied',
+
+  // 画布光标事件
+  CANVAS_CURSOR_UPDATED = 'canvas:cursor-updated',
 }
 
 // 基础事件载荷接口
@@ -334,16 +366,20 @@ export interface ObjectEventMap {
   [EditorEvents.OBJECT_DESELECTED]: { object: any };
   [EditorEvents.OBJECT_COPIED]: { object: any };
   [EditorEvents.OBJECT_PASTE_ATTEMPTED]: { data: any };
-  [EditorEvents.OBJECT_Z_ORDER_CHANGED]: { object: any; action: 'front' | 'back' | 'forward' | 'backward' };
+  [EditorEvents.OBJECT_Z_ORDER_CHANGED]: {
+    object: any;
+    action: 'front' | 'back' | 'forward' | 'backward';
+  };
 }
 
 // 视口事件
 export interface ViewportEventMap {
   [EditorEvents.VIEWPORT_ZOOM]: { zoom: number; center?: Point };
   [EditorEvents.VIEWPORT_PAN]: { x?: number; y?: number; panX?: number; panY?: number };
-  [EditorEvents.VIEWPORT_RESIZE]: { width: number; height: number };
+  [EditorEvents.VIEWPORT_RESIZE]: { width: number; height: number; zoom: number };
   [EditorEvents.VIEWPORT_FIT]: BaseEventPayload;
   [EditorEvents.VIEWPORT_STATE_CHANGED]: any;
+  [EditorEvents.CANVAS_CURSOR_UPDATED]: { cursor: string; event?: MouseEvent };
 }
 
 // 鼠标/键盘交互事件
@@ -363,27 +399,27 @@ export interface InteractionEventMap {
 
 // 拖拽事件
 export interface DragEventMap {
-  [EditorEvents.DRAG_START]: { 
-    target: any; 
-    point: Point; 
-    event: MouseEvent; 
+  [EditorEvents.DRAG_START]: {
+    target: any;
+    point: Point;
+    event: MouseEvent;
     controlPoint?: ControlPointType;
     originalBounds?: Bounds;
   };
-  [EditorEvents.DRAG_MOVE]: { 
-    target: any; 
-    point: Point; 
-    event: MouseEvent; 
-    deltaX: number; 
-    deltaY: number; 
+  [EditorEvents.DRAG_MOVE]: {
+    target: any;
+    point: Point;
+    event: MouseEvent;
+    deltaX: number;
+    deltaY: number;
     controlPoint?: ControlPointType;
   };
-  [EditorEvents.DRAG_END]: { 
-    target: any; 
-    point: Point; 
-    event: MouseEvent; 
-    totalDeltaX: number; 
-    totalDeltaY: number; 
+  [EditorEvents.DRAG_END]: {
+    target: any;
+    point: Point;
+    event: MouseEvent;
+    totalDeltaX: number;
+    totalDeltaY: number;
     controlPoint?: ControlPointType;
   };
   [EditorEvents.OBJECT_DRAG_START]: BaseEventPayload;
@@ -407,9 +443,21 @@ export interface SelectionEventMap {
 
 // 历史管理事件
 export interface HistoryEventMap {
-  [EditorEvents.HISTORY_STATE_CAPTURED]: { state: any; index?: number };
-  [EditorEvents.HISTORY_UNDO]: { state: any; index?: number };
-  [EditorEvents.HISTORY_REDO]: { state: any; index?: number };
+  [EditorEvents.HISTORY_STATE_CAPTURED]: {
+    state: any;
+    index?: number;
+    canUndo?: boolean;
+    canRedo?: boolean;
+  };
+  [EditorEvents.HISTORY_STATE_CHANGED]: {
+    state?: any;
+    index?: number;
+    canUndo?: boolean;
+    canRedo?: boolean;
+    description?: string;
+  };
+  [EditorEvents.HISTORY_UNDO]: { state: any; index?: number; canUndo?: boolean; canRedo?: boolean };
+  [EditorEvents.HISTORY_REDO]: { state: any; index?: number; canUndo?: boolean; canRedo?: boolean };
   [EditorEvents.HISTORY_CLEARED]: BaseEventPayload;
   [EditorEvents.HISTORY_GOTO]: { state: any; index: number };
   [EditorEvents.HISTORY_ENABLED]: BaseEventPayload;
@@ -434,7 +482,10 @@ export interface ImageEventMap {
   [EditorEvents.IMAGE_FILTERS_CLEARED]: { object: any };
   [EditorEvents.IMAGE_FILTERS_CHANGED]: { object: any; filters: any[] };
   [EditorEvents.IMAGE_DATA_CHANGED]: { object: any; imageData: ImageData };
-  [EditorEvents.IMAGE_CROPPED]: { object: any; cropRect: { x: number; y: number; width: number; height: number } };
+  [EditorEvents.IMAGE_CROPPED]: {
+    object: any;
+    cropRect: { x: number; y: number; width: number; height: number };
+  };
 }
 
 // 蒙版相关事件
@@ -443,7 +494,28 @@ export interface MaskEventMap {
   [EditorEvents.MASK_COLOR_CHANGED]: { object: any; color: string };
   [EditorEvents.MASK_DATA_CHANGED]: { object: any; imageData: ImageData };
   [EditorEvents.MASK_CLEARED]: { object?: any; imageObject?: any };
-  [EditorEvents.MASK_CHANGED]: { object: any; imageData: ImageData };
+  [EditorEvents.MASK_CHANGED]: {
+    canvas?: HTMLCanvasElement;
+    canvasData?: ImageData;
+    mode?: string;
+    brushSize?: number;
+  };
+  [EditorEvents.MASK_BRUSH_DRAW]: { canvas: HTMLCanvasElement };
+}
+
+// 自动蒙版插件事件
+export interface AutoMaskEventMap {
+  [EditorEvents.MASK_REGION_ENABLED]: BaseEventPayload;
+  [EditorEvents.MASK_REGION_DISABLED]: BaseEventPayload;
+  [EditorEvents.MASK_REGION_LOADED]: { maskCount: number };
+  [EditorEvents.MASK_REGION_CLEARED]: BaseEventPayload;
+  [EditorEvents.MASK_REGION_HOVER]: { region: any; point?: Point; imageObject?: any };
+  [EditorEvents.MASK_REGION_APPLIED]: { region: any; imageObject: any; canvas?: HTMLCanvasElement };
+  [EditorEvents.MASK_REGION_UNAPPLIED]: {
+    region: any;
+    imageObject: any;
+    canvas?: HTMLCanvasElement;
+  };
 }
 
 // 图层事件
@@ -467,12 +539,12 @@ export interface ToolEventMap {
 
 // 颜色选择插件事件
 export interface ColorSelectionEventMap {
-  [EditorEvents.COLOR_SELECTION_COMPLETED]: { 
-    selection: any; 
-    imageData: ImageData; 
-    bounds: Bounds; 
-    color: string; 
-    tolerance: number; 
+  [EditorEvents.COLOR_SELECTION_COMPLETED]: {
+    selection: any;
+    imageData: ImageData;
+    bounds: Bounds;
+    color: string;
+    tolerance: number;
   };
   [EditorEvents.COLOR_SELECTION_ENABLED]: BaseEventPayload;
   [EditorEvents.COLOR_SELECTION_DISABLED]: BaseEventPayload;
@@ -494,22 +566,23 @@ export interface MaskBrushEventMap {
 }
 
 // 合并所有事件类型
-export interface AllEventMap extends 
-  EditorEventMap,
-  ObjectEventMap,
-  ViewportEventMap,
-  InteractionEventMap,
-  DragEventMap,
-  PanEventMap,
-  SelectionEventMap,
-  HistoryEventMap,
-  PluginEventMap,
-  ImageEventMap,
-  MaskEventMap,
-  LayerEventMap,
-  ToolEventMap,
-  ColorSelectionEventMap,
-  MaskBrushEventMap {}
+export interface AllEventMap
+  extends EditorEventMap,
+    ObjectEventMap,
+    ViewportEventMap,
+    InteractionEventMap,
+    DragEventMap,
+    PanEventMap,
+    SelectionEventMap,
+    HistoryEventMap,
+    PluginEventMap,
+    ImageEventMap,
+    MaskEventMap,
+    AutoMaskEventMap,
+    LayerEventMap,
+    ToolEventMap,
+    ColorSelectionEventMap,
+    MaskBrushEventMap {}
 
 // 事件类型联合类型
 export type ImageEditorEventType = keyof AllEventMap;
@@ -520,16 +593,16 @@ export interface TypedEventEmitter {
     eventType: K,
     data: AllEventMap[K],
     target?: any,
-    originalEvent?: Event
+    originalEvent?: Event,
   ): void;
-  
+
   on<K extends ImageEditorEventType>(
     eventType: K,
-    handler: (data: AllEventMap[K], target?: any, originalEvent?: Event) => void
+    handler: (data: AllEventMap[K], target?: any, originalEvent?: Event) => void,
   ): void;
-  
+
   off<K extends ImageEditorEventType>(
     eventType: K,
-    handler?: (data: AllEventMap[K], target?: any, originalEvent?: Event) => void
+    handler?: (data: AllEventMap[K], target?: any, originalEvent?: Event) => void,
   ): void;
 }

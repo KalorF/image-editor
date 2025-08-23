@@ -1,6 +1,6 @@
 // 对象管理器
 import { BaseObject } from '../objects/BaseObject';
-import type { Point, Bounds } from '../types';
+import type { Bounds, EditorRenderType, Point } from '../types';
 import { EditorEvents } from '../types';
 import { EventEmitter } from './EventEmitter';
 
@@ -30,9 +30,9 @@ export class ObjectManager extends EventEmitter {
       name: '图层 1',
       visible: true,
       locked: false,
-      objects: []
+      objects: [],
     };
-    
+
     this.layers.push(defaultLayer);
     this.activeLayerId = defaultLayer.id;
   }
@@ -41,7 +41,7 @@ export class ObjectManager extends EventEmitter {
   addObject(object: BaseObject, layerId?: string): void {
     const targetLayerId = layerId || this.activeLayerId;
     const layer = this.getLayer(targetLayerId);
-    
+
     if (!layer) {
       throw new Error(`Layer ${targetLayerId} not found`);
     }
@@ -52,16 +52,16 @@ export class ObjectManager extends EventEmitter {
 
     // 添加到对象列表
     this.objects.push(object);
-    
+
     // 添加到图层
     layer.objects.push(object);
-    
+
     // 设置z-index
     (object as any).zIndex = this.zIndexCounter++;
-    
+
     // 监听对象事件
     this.bindObjectEvents(object);
-    
+
     this.emit(EditorEvents.OBJECT_ADDED, { object, layerId: targetLayerId });
   }
 
@@ -74,7 +74,7 @@ export class ObjectManager extends EventEmitter {
 
     // 从对象列表移除
     this.objects.splice(objectIndex, 1);
-    
+
     // 从图层移除
     for (const layer of this.layers) {
       const layerIndex = layer.objects.indexOf(object);
@@ -83,10 +83,10 @@ export class ObjectManager extends EventEmitter {
         break;
       }
     }
-    
+
     // 取消事件监听
     this.unbindObjectEvents(object);
-    
+
     this.emit(EditorEvents.OBJECT_REMOVED, { object });
   }
 
@@ -133,18 +133,18 @@ export class ObjectManager extends EventEmitter {
   // 点击测试 - 获取指定位置的对象
   hitTest(point: Point): BaseObject | null {
     const selectableObjects = this.getSelectableObjects();
-    
+
     // 按z-index倒序遍历（从上到下）
-    const sortedObjects = selectableObjects.sort((a, b) => 
-      ((b as any).zIndex || 0) - ((a as any).zIndex || 0)
+    const sortedObjects = selectableObjects.sort(
+      (a, b) => ((b as any).zIndex || 0) - ((a as any).zIndex || 0),
     );
-    
+
     for (const object of sortedObjects) {
       if (object.hitTest(point)) {
         return object;
       }
     }
-    
+
     return null;
   }
 
@@ -194,12 +194,12 @@ export class ObjectManager extends EventEmitter {
       name,
       visible: true,
       locked: false,
-      objects: []
+      objects: [],
     };
-    
+
     this.layers.push(layer);
     this.emit(EditorEvents.LAYER_CREATED, { layer });
-    
+
     return layer;
   }
 
@@ -214,19 +214,19 @@ export class ObjectManager extends EventEmitter {
     }
 
     const layer = this.layers[layerIndex];
-    
+
     // 移除图层中的所有对象
     const objectsToRemove = [...layer.objects];
     objectsToRemove.forEach(obj => this.removeObject(obj));
-    
+
     // 移除图层
     this.layers.splice(layerIndex, 1);
-    
+
     // 如果删除的是当前活动图层，切换到默认图层
     if (this.activeLayerId === layerId) {
       this.activeLayerId = 'default';
     }
-    
+
     this.emit(EditorEvents.LAYER_REMOVED, { layerId });
   }
 
@@ -281,7 +281,7 @@ export class ObjectManager extends EventEmitter {
   moveObjectToLayer(object: BaseObject, targetLayerId: string): void {
     const currentLayer = this.getObjectLayer(object);
     const targetLayer = this.getLayer(targetLayerId);
-    
+
     if (!currentLayer || !targetLayer) {
       return;
     }
@@ -298,11 +298,11 @@ export class ObjectManager extends EventEmitter {
 
     // 添加到目标图层
     targetLayer.objects.push(object);
-    
-    this.emit(EditorEvents.OBJECT_LAYER_CHANGED, { 
-      object, 
-      fromLayerId: currentLayer.id, 
-      toLayerId: targetLayerId 
+
+    this.emit(EditorEvents.OBJECT_LAYER_CHANGED, {
+      object,
+      fromLayerId: currentLayer.id,
+      toLayerId: targetLayerId,
     });
   }
 
@@ -315,12 +315,12 @@ export class ObjectManager extends EventEmitter {
   clear(): void {
     const objectsToRemove = [...this.objects];
     objectsToRemove.forEach(obj => this.removeObject(obj));
-    
+
     // 重置图层
     this.layers.forEach(layer => {
       layer.objects = [];
     });
-    
+
     this.emit(EditorEvents.OBJECTS_CLEARED, {});
   }
 
@@ -342,7 +342,7 @@ export class ObjectManager extends EventEmitter {
   }
 
   // 渲染所有对象
-  renderAll(ctx: CanvasRenderingContext2D): void {
+  renderAll(ctx: CanvasRenderingContext2D, type: EditorRenderType): void {
     // 按图层顺序渲染
     for (const layer of this.layers) {
       if (!layer.visible) {
@@ -356,7 +356,7 @@ export class ObjectManager extends EventEmitter {
 
       for (const object of sortedObjects) {
         try {
-          object.render(ctx);
+          object.render(ctx, type);
         } catch (error) {
           console.error('Error rendering object:', object.id, error);
         }
@@ -375,7 +375,7 @@ export class ObjectManager extends EventEmitter {
       totalObjects: this.objects.length,
       visibleObjects: this.getVisibleObjects().length,
       selectableObjects: this.getSelectableObjects().length,
-      layerCount: this.layers.length
+      layerCount: this.layers.length,
     };
   }
 
@@ -385,16 +385,16 @@ export class ObjectManager extends EventEmitter {
       objects: this.objects.map(obj => obj.toJSON()),
       layers: this.layers.map(layer => ({
         ...layer,
-        objects: layer.objects.map(obj => obj.id)
+        objects: layer.objects.map(obj => obj.id),
       })),
-      activeLayerId: this.activeLayerId
+      activeLayerId: this.activeLayerId,
     };
   }
 
   // 从JSON导入
-  fromJSON(data: any): void {
+  fromJSON(_data: any): void {
     this.clear();
-    
+
     // 这里需要对象工厂来创建具体的对象实例
     // 暂时留空，需要在编辑器主类中实现
   }

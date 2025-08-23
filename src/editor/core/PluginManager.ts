@@ -8,7 +8,7 @@ export class PluginManager extends EventEmitter {
   private installedPlugins: Set<string> = new Set();
 
   private editor: any;
-  
+
   constructor(editor: any) {
     super();
     this.editor = editor;
@@ -40,14 +40,14 @@ export class PluginManager extends EventEmitter {
     try {
       // 触发安装前钩子
       this.emit(EditorEvents.PLUGIN_BEFORE_INSTALL, { plugin, editor: this.editor });
-      
+
       // 安装插件
       plugin.install(this.editor);
       this.installedPlugins.add(pluginName);
-      
+
       // 触发安装后钩子
       this.emit(EditorEvents.PLUGIN_INSTALLED, { plugin, editor: this.editor });
-      
+
       console.log(`Plugin ${pluginName} installed successfully`);
     } catch (error) {
       console.error(`Failed to install plugin ${pluginName}:`, error);
@@ -70,16 +70,16 @@ export class PluginManager extends EventEmitter {
     try {
       // 触发卸载前钩子
       this.emit(EditorEvents.PLUGIN_BEFORE_UNINSTALL, { plugin, editor: this.editor });
-      
+
       // 卸载插件
       if (plugin.uninstall) {
         plugin.uninstall(this.editor);
       }
       this.installedPlugins.delete(pluginName);
-      
+
       // 触发卸载后钩子
       this.emit(EditorEvents.PLUGIN_UNINSTALLED, { plugin, editor: this.editor });
-      
+
       console.log(`Plugin ${pluginName} uninstalled successfully`);
     } catch (error) {
       console.error(`Failed to uninstall plugin ${pluginName}:`, error);
@@ -121,18 +121,21 @@ export class PluginManager extends EventEmitter {
   }
 
   // 获取插件状态
-  getPluginStatus(): Record<string, {
-    registered: boolean;
-    installed: boolean;
-    version: string;
-  }> {
+  getPluginStatus(): Record<
+    string,
+    {
+      registered: boolean;
+      installed: boolean;
+      version: string;
+    }
+  > {
     const status: Record<string, any> = {};
-    
+
     this.plugins.forEach((plugin, name) => {
       status[name] = {
         registered: true,
         installed: this.installedPlugins.has(name),
-        version: plugin.version
+        version: plugin.version,
       };
     });
 

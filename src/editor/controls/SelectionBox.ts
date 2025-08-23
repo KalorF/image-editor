@@ -1,10 +1,11 @@
+// oxlint-disable no-case-declarations
 // 基于OBB的选择框控制器
-import type { Point, ControlPoint, OBB } from '../types';
-import { ControlPointType, EditorEvents } from '../types';
-import { BaseObject } from '../objects/BaseObject';
-import { MathUtils } from '../utils/math';
 import { EventEmitter } from '../core/EventEmitter';
 import { Viewport } from '../core/Viewport';
+import { BaseObject } from '../objects/BaseObject';
+import type { ControlPoint, OBB, Point } from '../types';
+import { ControlPointType, EditorEvents } from '../types';
+import { MathUtils } from '../utils/math';
 
 export interface SelectionBoxOptions {
   strokeColor?: string;
@@ -23,7 +24,7 @@ export class SelectionBox extends EventEmitter {
   private controlPoints: ControlPoint[] = [];
   private viewport: Viewport | null = null;
   private canvas: HTMLCanvasElement | null = null;
-  
+
   // 样式配置
   private strokeColor: string = '#2661f1';
   private strokeWidth: number = 1.5;
@@ -32,7 +33,7 @@ export class SelectionBox extends EventEmitter {
   private controlPointStroke: string = '#2661f1';
   private rotationHandleDistance: number = 30;
   private rotationHandleSize: number = 8;
-  
+
   // 交互状态
   private isDragging: boolean = false;
   private dragType: 'move' | 'resize' | 'rotate' | 'select' | null = null;
@@ -52,13 +53,13 @@ export class SelectionBox extends EventEmitter {
   setTarget(target: BaseObject | null): void {
     const oldTarget = this.target;
     this.target = target;
-    
+
     if (target) {
       this.updateControlPoints();
     } else {
       this.controlPoints = [];
     }
-    
+
     this.emit(EditorEvents.SELECTION_CHANGED, { oldTarget, newTarget: target });
   }
 
@@ -109,56 +110,58 @@ export class SelectionBox extends EventEmitter {
     if (!middleTopPoint) {
       return { x: 0, y: 0 }; // 如果找不到MiddleTop控制点，则返回默认位置
     }
-    
+
     if (!this.viewport) {
       // 如果没有viewport，使用简单的本地坐标计算
       const localOffset = {
         x: 0,
-        y: -this.rotationHandleDistance
+        y: -this.rotationHandleDistance,
       };
       const rotatedOffset = MathUtils.rotatePoint(localOffset, { x: 0, y: 0 }, obb.rotation);
       return {
         x: middleTopPoint.position.x + rotatedOffset.x,
-        y: middleTopPoint.position.y + rotatedOffset.y
+        y: middleTopPoint.position.y + rotatedOffset.y,
       };
     }
-    
+
     // 将MiddleTop点转换为屏幕坐标
     const middleTopScreenPoint = this.viewport.worldToScreen(middleTopPoint.position);
-    
+
     // 计算对象在屏幕上的顶边方向
     const topLeftScreen = this.viewport.worldToScreen(obb.corners[0]);
     const topRightScreen = this.viewport.worldToScreen(obb.corners[1]);
-    
+
     // 计算顶边的方向向量
     const topEdgeVector = {
       x: topRightScreen.x - topLeftScreen.x,
-      y: topRightScreen.y - topLeftScreen.y
+      y: topRightScreen.y - topLeftScreen.y,
     };
-    
+
     // 计算垂直于顶边向上的方向（逆时针旋转90度）
     const perpendicular = {
       x: -topEdgeVector.y,
-      y: topEdgeVector.x
+      y: topEdgeVector.x,
     };
-    
+
     // 标准化垂直向量
-    const perpLength = Math.sqrt(perpendicular.x * perpendicular.x + perpendicular.y * perpendicular.y);
+    const perpLength = Math.sqrt(
+      perpendicular.x * perpendicular.x + perpendicular.y * perpendicular.y,
+    );
     if (perpLength === 0) {
       return middleTopPoint.position; // 防止除零错误
     }
-    
+
     const normalizedPerp = {
       x: perpendicular.x / perpLength,
-      y: perpendicular.y / perpLength
+      y: perpendicular.y / perpLength,
     };
-    
+
     // 在屏幕坐标系中，从MiddleTop点沿垂直方向向上偏移固定像素距离
     const rotationHandleScreenPoint = {
       x: middleTopScreenPoint.x + normalizedPerp.x * this.rotationHandleDistance,
-      y: middleTopScreenPoint.y + normalizedPerp.y * this.rotationHandleDistance
+      y: middleTopScreenPoint.y + normalizedPerp.y * this.rotationHandleDistance,
     };
-    
+
     // 将屏幕坐标转换回世界坐标
     return this.viewport.screenToWorld(rotationHandleScreenPoint);
   }
@@ -182,51 +185,51 @@ export class SelectionBox extends EventEmitter {
 
     const obb = this.target.getOBB();
     const corners = obb.corners;
-    
+
     this.controlPoints = [
       // 四个角点
       {
         type: ControlPointType.TopLeft,
         position: corners[0],
-        cursor: this.getResizeCursor(obb.rotation, 'nw')
+        cursor: this.getResizeCursor(obb.rotation, 'nw'),
       },
       {
         type: ControlPointType.TopRight,
         position: corners[1],
-        cursor: this.getResizeCursor(obb.rotation, 'ne')
+        cursor: this.getResizeCursor(obb.rotation, 'ne'),
       },
       {
         type: ControlPointType.BottomRight,
         position: corners[2],
-        cursor: this.getResizeCursor(obb.rotation, 'se')
+        cursor: this.getResizeCursor(obb.rotation, 'se'),
       },
       {
         type: ControlPointType.BottomLeft,
         position: corners[3],
-        cursor: this.getResizeCursor(obb.rotation, 'sw')
+        cursor: this.getResizeCursor(obb.rotation, 'sw'),
       },
-      
+
       // 中点控制点
       {
         type: ControlPointType.MiddleTop,
         position: this.getMidPoint(corners[0], corners[1]),
-        cursor: this.getResizeCursor(obb.rotation, 'n')
+        cursor: this.getResizeCursor(obb.rotation, 'n'),
       },
       {
         type: ControlPointType.MiddleRight,
         position: this.getMidPoint(corners[1], corners[2]),
-        cursor: this.getResizeCursor(obb.rotation, 'e')
+        cursor: this.getResizeCursor(obb.rotation, 'e'),
       },
       {
         type: ControlPointType.MiddleBottom,
         position: this.getMidPoint(corners[2], corners[3]),
-        cursor: this.getResizeCursor(obb.rotation, 's')
+        cursor: this.getResizeCursor(obb.rotation, 's'),
       },
       {
         type: ControlPointType.MiddleLeft,
         position: this.getMidPoint(corners[3], corners[0]),
-        cursor: this.getResizeCursor(obb.rotation, 'w')
-      }
+        cursor: this.getResizeCursor(obb.rotation, 'w'),
+      },
     ];
 
     // 添加旋转控制点
@@ -235,30 +238,30 @@ export class SelectionBox extends EventEmitter {
     if (!middleTopPoint) {
       return; // 如果找不到MiddleTop控制点，则不添加旋转控制点
     }
-    
+
     // 在本地坐标系中计算偏移：从MiddleTop点向上（负Y方向）偏移固定距离
     const localOffset = {
       x: 0, // 水平方向不偏移
-      y: -this.rotationHandleDistance // 向上偏移固定距离
+      y: -this.rotationHandleDistance, // 向上偏移固定距离
     };
-    
+
     // 将偏移量应用旋转变换
     const rotatedOffset = MathUtils.rotatePoint(
       localOffset,
       { x: 0, y: 0 }, // 绕原点旋转
-      obb.rotation
+      obb.rotation,
     );
-    
+
     // 计算旋转控制点的最终位置
     const rotatedPoint = {
       x: middleTopPoint.position.x + rotatedOffset.x,
-      y: middleTopPoint.position.y + rotatedOffset.y
+      y: middleTopPoint.position.y + rotatedOffset.y,
     };
-    
+
     this.controlPoints.push({
       type: ControlPointType.Rotation,
       position: rotatedPoint,
-      cursor: 'crosshair'
+      cursor: 'crosshair',
     });
   }
 
@@ -266,16 +269,21 @@ export class SelectionBox extends EventEmitter {
   private getMidPoint(p1: Point, p2: Point): Point {
     return {
       x: (p1.x + p2.x) / 2,
-      y: (p1.y + p2.y) / 2
+      y: (p1.y + p2.y) / 2,
     };
   }
 
   // 将点投影到通过对象中心的水平或垂直线上（考虑旋转）
-  private projectPointToLine(point: Point, center: Point, rotation: number, direction: 'horizontal' | 'vertical'): Point {
+  private projectPointToLine(
+    point: Point,
+    center: Point,
+    rotation: number,
+    direction: 'horizontal' | 'vertical',
+  ): Point {
     // 将点转换到本地坐标系
     const localPoint = MathUtils.rotatePoint(point, center, -rotation);
     const localCenter = center;
-    
+
     if (direction === 'horizontal') {
       // 投影到水平线（Y坐标固定）
       const projectedLocal = { x: localPoint.x, y: localCenter.y };
@@ -291,17 +299,32 @@ export class SelectionBox extends EventEmitter {
   private getResizeCursor(rotation: number, direction: string): string {
     const angle = MathUtils.radToDeg(rotation);
     const normalizedAngle = ((angle % 360) + 360) % 360;
-    
+
     // 根据旋转角度调整光标方向
     // 基础光标样式（按顺序：西北、北、东北、东、东南、南、西南、西）
-    const baseCursors = ['nw-resize', 'n-resize', 'ne-resize', 'e-resize', 'se-resize', 's-resize', 'sw-resize', 'w-resize'];
-    
+    const baseCursors = [
+      'nw-resize',
+      'n-resize',
+      'ne-resize',
+      'e-resize',
+      'se-resize',
+      's-resize',
+      'sw-resize',
+      'w-resize',
+    ];
+
     // 控制点类型对应的起始索引
     const cursorStartIndex: Record<string, number> = {
-      'nw': 0, 'n': 1, 'ne': 2, 'e': 3,
-      'se': 4, 's': 5, 'sw': 6, 'w': 7
+      nw: 0,
+      n: 1,
+      ne: 2,
+      e: 3,
+      se: 4,
+      s: 5,
+      sw: 6,
+      w: 7,
     };
-    
+
     // 生成旋转光标数组的函数
     const generateRotatedCursors = (startIndex: number): string[] => {
       const result: string[] = [];
@@ -310,13 +333,13 @@ export class SelectionBox extends EventEmitter {
       }
       return result;
     };
-    
+
     // 生成光标映射
     const cursors: Record<string, string[]> = {};
     Object.keys(cursorStartIndex).forEach(key => {
       cursors[key] = generateRotatedCursors(cursorStartIndex[key]);
     });
-    
+
     const directionCursors = cursors[direction] || ['default'];
     const index = Math.round(normalizedAngle / 45) % 8;
     return directionCursors[index] || 'default';
@@ -364,10 +387,10 @@ export class SelectionBox extends EventEmitter {
       this.dragControlPoint = type;
     }
 
-    this.emit(EditorEvents.DRAG_START, { 
-      target: this.target, 
-      type: this.dragType, 
-      point: point 
+    this.emit(EditorEvents.DRAG_START, {
+      target: this.target,
+      type: this.dragType,
+      point: point,
     });
   }
 
@@ -401,7 +424,7 @@ export class SelectionBox extends EventEmitter {
     // 处理拖拽
     const deltaX = point.x - this.dragStartPoint.x;
     const deltaY = point.y - this.dragStartPoint.y;
-    
+
     const threshold = 5;
     if (Math.abs(deltaX) < threshold && Math.abs(deltaY) < threshold) {
       return false;
@@ -425,10 +448,10 @@ export class SelectionBox extends EventEmitter {
     }
 
     this.updateControlPoints();
-    this.emit(EditorEvents.DRAG_MOVE, { 
-      target: this.target, 
-      type: this.dragType, 
-      point: point 
+    this.emit(EditorEvents.DRAG_MOVE, {
+      target: this.target,
+      type: this.dragType,
+      point: point,
     });
 
     return true;
@@ -438,150 +461,168 @@ export class SelectionBox extends EventEmitter {
   private handleMove(deltaX: number, deltaY: number): void {
     if (!this.target || !this.initialTransform) return;
 
-    this.target.setPosition(
-      this.initialTransform.x + deltaX,
-      this.initialTransform.y + deltaY
-    );
+    this.target.setPosition(this.initialTransform.x + deltaX, this.initialTransform.y + deltaY);
   }
 
   // 处理缩放 - 以对角点为固定点，控制点跟手缩放
   private handleResize(currentPoint: Point): void {
-    if (!this.target || !this.initialOBB || !this.dragControlPoint || !this.initialTransform) return;
+    if (!this.target || !this.initialOBB || !this.dragControlPoint || !this.initialTransform)
+      return;
 
     const center = this.initialOBB.center;
     const rotation = this.initialOBB.rotation;
-    
+
     // 将当前点转换到本地坐标系进行计算
     const localCurrentPoint = MathUtils.rotatePoint(currentPoint, center, -rotation);
     const localCenter = center;
-    
+
     // 获取初始尺寸
     const initialWidth = this.initialOBB.size.width;
     const initialHeight = this.initialOBB.size.height;
-    
+
     // 在本地坐标系中计算固定点和新尺寸
     let localFixedPoint: Point;
     let newLocalCenterX = localCenter.x;
     let newLocalCenterY = localCenter.y;
     let scaleX = 1;
     let scaleY = 1;
-    
+
     switch (this.dragControlPoint) {
       case ControlPointType.TopLeft:
         // 以右下角为固定点
-        localFixedPoint = { x: localCenter.x + initialWidth / 2, y: localCenter.y + initialHeight / 2 };
-        
+        localFixedPoint = {
+          x: localCenter.x + initialWidth / 2,
+          y: localCenter.y + initialHeight / 2,
+        };
+
         // 角点缩放：使用对角线距离保持比例
-        const initialDiagonal1 = Math.sqrt(initialWidth * initialWidth + initialHeight * initialHeight);
+        const initialDiagonal1 = Math.sqrt(
+          initialWidth * initialWidth + initialHeight * initialHeight,
+        );
         const newDiagonal1 = MathUtils.distance(localFixedPoint, localCurrentPoint);
         const scale1 = Math.max(0.1, newDiagonal1 / initialDiagonal1);
         scaleX = scale1;
         scaleY = scale1;
-        
+
         // 基于固定点和缩放比例计算新中心点
         const newHalfWidth1 = (initialWidth * scale1) / 2;
         const newHalfHeight1 = (initialHeight * scale1) / 2;
         newLocalCenterX = localFixedPoint.x - newHalfWidth1;
         newLocalCenterY = localFixedPoint.y - newHalfHeight1;
         break;
-        
+
       case ControlPointType.TopRight:
         // 以左下角为固定点
-        localFixedPoint = { x: localCenter.x - initialWidth / 2, y: localCenter.y + initialHeight / 2 };
-        
-        const initialDiagonal2 = Math.sqrt(initialWidth * initialWidth + initialHeight * initialHeight);
+        localFixedPoint = {
+          x: localCenter.x - initialWidth / 2,
+          y: localCenter.y + initialHeight / 2,
+        };
+
+        const initialDiagonal2 = Math.sqrt(
+          initialWidth * initialWidth + initialHeight * initialHeight,
+        );
         const newDiagonal2 = MathUtils.distance(localFixedPoint, localCurrentPoint);
         const scale2 = Math.max(0.1, newDiagonal2 / initialDiagonal2);
         scaleX = scale2;
         scaleY = scale2;
-        
+
         const newHalfWidth2 = (initialWidth * scale2) / 2;
         const newHalfHeight2 = (initialHeight * scale2) / 2;
         newLocalCenterX = localFixedPoint.x + newHalfWidth2;
         newLocalCenterY = localFixedPoint.y - newHalfHeight2;
         break;
-        
+
       case ControlPointType.BottomRight:
         // 以左上角为固定点
-        localFixedPoint = { x: localCenter.x - initialWidth / 2, y: localCenter.y - initialHeight / 2 };
-        
-        const initialDiagonal3 = Math.sqrt(initialWidth * initialWidth + initialHeight * initialHeight);
+        localFixedPoint = {
+          x: localCenter.x - initialWidth / 2,
+          y: localCenter.y - initialHeight / 2,
+        };
+
+        const initialDiagonal3 = Math.sqrt(
+          initialWidth * initialWidth + initialHeight * initialHeight,
+        );
         const newDiagonal3 = MathUtils.distance(localFixedPoint, localCurrentPoint);
         const scale3 = Math.max(0.1, newDiagonal3 / initialDiagonal3);
         scaleX = scale3;
         scaleY = scale3;
-        
+
         const newHalfWidth3 = (initialWidth * scale3) / 2;
         const newHalfHeight3 = (initialHeight * scale3) / 2;
         newLocalCenterX = localFixedPoint.x + newHalfWidth3;
         newLocalCenterY = localFixedPoint.y + newHalfHeight3;
         break;
-        
+
       case ControlPointType.BottomLeft:
         // 以右上角为固定点
-        localFixedPoint = { x: localCenter.x + initialWidth / 2, y: localCenter.y - initialHeight / 2 };
-        
-        const initialDiagonal4 = Math.sqrt(initialWidth * initialWidth + initialHeight * initialHeight);
+        localFixedPoint = {
+          x: localCenter.x + initialWidth / 2,
+          y: localCenter.y - initialHeight / 2,
+        };
+
+        const initialDiagonal4 = Math.sqrt(
+          initialWidth * initialWidth + initialHeight * initialHeight,
+        );
         const newDiagonal4 = MathUtils.distance(localFixedPoint, localCurrentPoint);
         const scale4 = Math.max(0.1, newDiagonal4 / initialDiagonal4);
         scaleX = scale4;
         scaleY = scale4;
-        
+
         const newHalfWidth4 = (initialWidth * scale4) / 2;
         const newHalfHeight4 = (initialHeight * scale4) / 2;
         newLocalCenterX = localFixedPoint.x - newHalfWidth4;
         newLocalCenterY = localFixedPoint.y + newHalfHeight4;
         break;
-        
+
       case ControlPointType.MiddleTop:
         // 以下边为固定线，只调整高度
         localFixedPoint = { x: localCenter.x, y: localCenter.y + initialHeight / 2 };
         newLocalCenterY = (localFixedPoint.y + localCurrentPoint.y) / 2;
-        
+
         const newHeight5 = Math.abs(localFixedPoint.y - localCurrentPoint.y);
         scaleY = Math.max(0.1, newHeight5 / initialHeight);
         break;
-        
+
       case ControlPointType.MiddleBottom:
         // 以上边为固定线，只调整高度
         localFixedPoint = { x: localCenter.x, y: localCenter.y - initialHeight / 2 };
         newLocalCenterY = (localFixedPoint.y + localCurrentPoint.y) / 2;
-        
+
         const newHeight6 = Math.abs(localFixedPoint.y - localCurrentPoint.y);
         scaleY = Math.max(0.1, newHeight6 / initialHeight);
         break;
-        
+
       case ControlPointType.MiddleLeft:
         // 以右边为固定线，只调整宽度
         localFixedPoint = { x: localCenter.x + initialWidth / 2, y: localCenter.y };
         newLocalCenterX = (localFixedPoint.x + localCurrentPoint.x) / 2;
-        
+
         const newWidth7 = Math.abs(localFixedPoint.x - localCurrentPoint.x);
         scaleX = Math.max(0.1, newWidth7 / initialWidth);
         break;
-        
+
       case ControlPointType.MiddleRight:
         // 以左边为固定线，只调整宽度
         localFixedPoint = { x: localCenter.x - initialWidth / 2, y: localCenter.y };
         newLocalCenterX = (localFixedPoint.x + localCurrentPoint.x) / 2;
-        
+
         const newWidth8 = Math.abs(localFixedPoint.x - localCurrentPoint.x);
         scaleX = Math.max(0.1, newWidth8 / initialWidth);
         break;
-        
+
       default:
         return;
     }
-    
+
     // 将新中心点转换回世界坐标系
     const newLocalCenter = { x: newLocalCenterX, y: newLocalCenterY };
     const newWorldCenter = MathUtils.rotatePoint(newLocalCenter, center, rotation);
-    
+
     // 应用变换
     this.target.setPosition(newWorldCenter.x, newWorldCenter.y);
     this.target.setScale(
       this.initialTransform.scaleX * scaleX,
-      this.initialTransform.scaleY * scaleY
+      this.initialTransform.scaleY * scaleY,
     );
   }
 
@@ -590,21 +631,18 @@ export class SelectionBox extends EventEmitter {
     if (!this.target || !this.initialOBB) return;
 
     const center = this.initialOBB.center;
-    
+
     // 计算初始角度和当前角度
     const initialAngle = Math.atan2(
       this.dragStartPoint.y - center.y,
-      this.dragStartPoint.x - center.x
+      this.dragStartPoint.x - center.x,
     );
-    
-    const currentAngle = Math.atan2(
-      currentPoint.y - center.y,
-      currentPoint.x - center.x
-    );
-    
+
+    const currentAngle = Math.atan2(currentPoint.y - center.y, currentPoint.x - center.x);
+
     const deltaAngle = currentAngle - initialAngle;
     const newRotation = this.initialTransform!.rotation + deltaAngle;
-    
+
     this.target.setRotation(newRotation);
   }
 
@@ -629,9 +667,9 @@ export class SelectionBox extends EventEmitter {
       return false;
     }
 
-    this.emit(EditorEvents.DRAG_END, { 
-      target: this.target, 
-      type: dragType 
+    this.emit(EditorEvents.DRAG_END, {
+      target: this.target,
+      type: dragType,
     });
 
     return true;
@@ -643,15 +681,16 @@ export class SelectionBox extends EventEmitter {
     const adjustedRotationHandleSize = this.getAdjustedRotationHandleSize();
     // 添加一点容差来提高控制点的可点击性
     const basePadding = 2;
-    const threshold = Math.max(adjustedControlPointSize, adjustedRotationHandleSize) / 2 + basePadding;
-    
+    const threshold =
+      Math.max(adjustedControlPointSize, adjustedRotationHandleSize) / 2 + basePadding;
+
     for (const controlPoint of this.controlPoints) {
       const distance = MathUtils.distance(point, controlPoint.position);
       if (distance <= threshold) {
         return controlPoint;
       }
     }
-    
+
     return null;
   }
 
@@ -662,15 +701,15 @@ export class SelectionBox extends EventEmitter {
     }
 
     const obb = this.target.getOBB();
-    
+
     ctx.save();
-    
+
     // 绘制选择框边界
     ctx.strokeStyle = this.strokeColor;
     ctx.lineWidth = this.getAdjustedLineWidth(this.strokeWidth);
     // const dashSize = this.getAdjustedLineWidth(5);
     // ctx.setLineDash([dashSize, dashSize]);
-    
+
     ctx.beginPath();
     const corners = obb.corners;
     ctx.moveTo(corners[0].x, corners[0].y);
@@ -679,24 +718,25 @@ export class SelectionBox extends EventEmitter {
     }
     ctx.closePath();
     ctx.stroke();
-    
+
     // ctx.setLineDash([]);
 
     // 绘制控制点
     ctx.fillStyle = this.controlPointColor;
     ctx.strokeStyle = this.controlPointStroke;
     ctx.lineWidth = this.getAdjustedLineWidth(1);
-    
+
     const adjustedControlPointSize = this.getAdjustedControlPointSize();
     const adjustedRotationHandleSize = this.getAdjustedRotationHandleSize();
-    
+
     for (const controlPoint of this.controlPoints) {
-      const size = controlPoint.type === ControlPointType.Rotation 
-        ? adjustedRotationHandleSize 
-        : adjustedControlPointSize;
-        
+      const size =
+        controlPoint.type === ControlPointType.Rotation
+          ? adjustedRotationHandleSize
+          : adjustedControlPointSize;
+
       ctx.beginPath();
-      
+
       if (controlPoint.type === ControlPointType.Rotation) {
         // 旋转控制点绘制为圆形
         ctx.arc(controlPoint.position.x, controlPoint.position.y, size / 2, 0, Math.PI * 2);
@@ -709,7 +749,7 @@ export class SelectionBox extends EventEmitter {
         ctx.rect(-size / 2, -size / 2, size, size);
         ctx.restore();
       }
-      
+
       ctx.fill();
       ctx.stroke();
     }

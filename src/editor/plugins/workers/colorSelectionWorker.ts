@@ -1,4 +1,7 @@
-export interface Point { x: number; y: number }
+export interface Point {
+  x: number;
+  y: number;
+}
 
 interface FloodMessage {
   kind: 'flood';
@@ -33,12 +36,12 @@ self.onmessage = (e: MessageEvent<FloodMessage>) => {
       task: msg.task,
       width,
       height,
-      mask
+      mask,
     };
     // 传输 mask 的底层 buffer，减少拷贝
     // 注意：某些环境下需要结构化克隆，遇到问题可改为不传输
     (self as any).postMessage(out, [out.mask.buffer]);
-  } catch (err) {
+  } catch (_err) {
     // 失败则返回空掩码，避免阻塞主线程逻辑
     const empty = new Uint8Array(msg.width * msg.height);
     const out: FloodResultMessage = {
@@ -47,7 +50,7 @@ self.onmessage = (e: MessageEvent<FloodMessage>) => {
       task: msg.task,
       width: msg.width,
       height: msg.height,
-      mask: empty
+      mask: empty,
     };
     (self as any).postMessage(out, [out.mask.buffer]);
   }
@@ -59,7 +62,7 @@ function floodFillOptimized(
   rgba: Uint8ClampedArray,
   seedPoints: Point[],
   tolerance: number,
-  circle?: { cx: number; cy: number; r: number }
+  _circle?: { cx: number; cy: number; r: number },
 ): Uint8Array {
   const total = width * height;
   const mask = new Uint8Array(total);
@@ -93,7 +96,7 @@ function floodFillOptimized(
     }
   }
 
-  const dirs = [-1, 1, -width, width]; // 使用一维索引相邻偏移需要小心换算；此处仍然用 x/y 推导
+  // const dirs = [-1, 1, -width, width]; // 使用一维索引相邻偏移需要小心换算；此处仍然用 x/y 推导
   let head = 0;
 
   while (head < qx.length) {
@@ -140,4 +143,4 @@ function floodFillOptimized(
     qx.push(nx);
     qy.push(ny);
   }
-} 
+}

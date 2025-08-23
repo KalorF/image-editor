@@ -1,5 +1,12 @@
+// oxlint-disable no-unsafe-function-type
 // 事件发射器类
-import type { EditorEvent, EventHandler, TypedEventEmitter, AllEventMap, ImageEditorEventType } from '../types';
+import type {
+  AllEventMap,
+  EditorEvent,
+  EventHandler,
+  ImageEditorEventType,
+  TypedEventEmitter,
+} from '../types';
 
 export class EventEmitter implements TypedEventEmitter {
   private listeners: Map<string, Function[]> = new Map();
@@ -7,7 +14,7 @@ export class EventEmitter implements TypedEventEmitter {
   // 类型安全的添加事件监听器
   on<K extends ImageEditorEventType>(
     eventType: K,
-    handler: (data: AllEventMap[K], target?: any, originalEvent?: Event) => void
+    handler: (data: AllEventMap[K], target?: any, originalEvent?: Event) => void,
   ): void;
   // 向后兼容的重载
   on(eventType: string, handler: EventHandler): void;
@@ -21,7 +28,7 @@ export class EventEmitter implements TypedEventEmitter {
   // 类型安全的移除事件监听器
   off<K extends ImageEditorEventType>(
     eventType: K,
-    handler?: (data: AllEventMap[K], target?: any, originalEvent?: Event) => void
+    handler?: (data: AllEventMap[K], target?: any, originalEvent?: Event) => void,
   ): void;
   // 向后兼容的重载
   off(eventType: string, handler?: EventHandler): void;
@@ -50,7 +57,7 @@ export class EventEmitter implements TypedEventEmitter {
   // 添加一次性事件监听器
   once<K extends ImageEditorEventType>(
     eventType: K,
-    handler: (data: AllEventMap[K], target?: any, originalEvent?: Event) => void
+    handler: (data: AllEventMap[K], target?: any, originalEvent?: Event) => void,
   ): void;
   // 向后兼容的重载
   once(eventType: string, handler: EventHandler): void;
@@ -67,7 +74,7 @@ export class EventEmitter implements TypedEventEmitter {
     eventType: K,
     data: AllEventMap[K],
     target?: any,
-    originalEvent?: Event
+    originalEvent?: Event,
   ): void;
   // 向后兼容的重载
   emit(eventType: string, data?: any, target?: any, originalEvent?: Event): void;
@@ -77,7 +84,7 @@ export class EventEmitter implements TypedEventEmitter {
     }
 
     const handlers = this.listeners.get(eventType)!.slice(); // 复制数组避免修改问题
-    
+
     // 针对新的类型安全模式，直接传递data、target、originalEvent
     // 针对旧的EditorEvent模式，包装为EditorEvent对象
     handlers.forEach(handler => {
@@ -92,7 +99,7 @@ export class EventEmitter implements TypedEventEmitter {
             type: eventType,
             data,
             target,
-            originalEvent
+            originalEvent,
           };
           handler(event);
         }

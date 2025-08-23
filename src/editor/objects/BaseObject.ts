@@ -1,8 +1,8 @@
 // 渲染对象基类
-import type { RenderObject, Transform, Point, OBB, Bounds } from '../types';
-import { MathUtils } from '../utils/math';
 import { EventEmitter } from '../core/EventEmitter';
+import type { Bounds, EditorRenderType, OBB, Point, RenderObject, Transform } from '../types';
 import { EditorEvents } from '../types';
+import { MathUtils } from '../utils/math';
 
 export abstract class BaseObject extends EventEmitter implements RenderObject {
   public id: string;
@@ -10,7 +10,7 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
   public transform: Transform;
   public visible: boolean = true;
   public selectable: boolean = true;
-  
+
   // 对象属性
   public width: number = 100;
   public height: number = 100;
@@ -21,19 +21,19 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
 
   constructor(type: string, options: Partial<BaseObject> = {}) {
     super();
-    
-    this.id = this.generateId();
+
     this.type = type;
     this.transform = {
       x: 0,
       y: 0,
       scaleX: 1,
       scaleY: 1,
-      rotation: 0
+      rotation: 0,
     };
 
     // 应用选项
     Object.assign(this, options);
+    this.id = this.generateId();
   }
 
   // 生成唯一ID
@@ -42,7 +42,7 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
   }
 
   // 抽象方法 - 子类必须实现
-  abstract render(ctx: CanvasRenderingContext2D): void;
+  abstract render(ctx: CanvasRenderingContext2D, type?: EditorRenderType): void;
 
   abstract destroy(): void;
 
@@ -51,7 +51,7 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
     return MathUtils.createOBB(
       { x: this.transform.x, y: this.transform.y },
       { width: this.width * this.transform.scaleX, height: this.height * this.transform.scaleY },
-      this.transform.rotation
+      this.transform.rotation,
     );
   }
 
@@ -69,12 +69,12 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
   getBounds(): Bounds {
     const obb = this.getOBB();
     const bbox = MathUtils.getBoundingBox(obb.corners);
-    
+
     return {
       left: bbox.min.x,
       top: bbox.min.y,
       width: bbox.max.x - bbox.min.x,
-      height: bbox.max.y - bbox.min.y
+      height: bbox.max.y - bbox.min.y,
     };
   }
 
@@ -89,14 +89,14 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
   setPosition(x: number, y: number): void {
     const oldX = this.transform.x;
     const oldY = this.transform.y;
-    
+
     this.transform.x = x;
     this.transform.y = y;
-    
-    this.emit(EditorEvents.OBJECT_MOVED, { 
-      object: this, 
-      deltaX: x - oldX, 
-      deltaY: y - oldY 
+
+    this.emit(EditorEvents.OBJECT_MOVED, {
+      object: this,
+      deltaX: x - oldX,
+      deltaY: y - oldY,
     });
   }
 
@@ -111,14 +111,14 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
   setScale(scaleX: number, scaleY: number = scaleX): void {
     const oldScaleX = this.transform.scaleX;
     const oldScaleY = this.transform.scaleY;
-    
+
     this.transform.scaleX = scaleX;
     this.transform.scaleY = scaleY;
-    
-    this.emit(EditorEvents.OBJECT_SCALED, { 
-      object: this, 
-      scaleX: scaleX / oldScaleX, 
-      scaleY: scaleY / oldScaleY 
+
+    this.emit(EditorEvents.OBJECT_SCALED, {
+      object: this,
+      scaleX: scaleX / oldScaleX,
+      scaleY: scaleY / oldScaleY,
     });
   }
 
@@ -132,9 +132,9 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
   setRotation(angle: number): void {
     const oldRotation = this.transform.rotation;
     this.transform.rotation = angle;
-    this.emit(EditorEvents.OBJECT_ROTATED, { 
-      object: this, 
-      angle: angle - oldRotation 
+    this.emit(EditorEvents.OBJECT_ROTATED, {
+      object: this,
+      angle: angle - oldRotation,
     });
   }
 
@@ -149,26 +149,26 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
   clone(): BaseObject {
     const cloned = Object.create(Object.getPrototypeOf(this));
     Object.assign(cloned, this);
-    
+
     // 深拷贝transform
     cloned.transform = { ...this.transform };
     cloned.id = this.generateId();
-    
+
     return cloned;
   }
 
   // 应用变换到画布上下文
   protected applyTransform(ctx: CanvasRenderingContext2D): void {
     ctx.save();
-    
+
     // 移动到对象中心
     ctx.translate(this.transform.x, this.transform.y);
-    
+
     // 旋转
     if (this.transform.rotation !== 0) {
       ctx.rotate(this.transform.rotation);
     }
-    
+
     // 缩放
     if (this.transform.scaleX !== 1 || this.transform.scaleY !== 1) {
       ctx.scale(this.transform.scaleX, this.transform.scaleY);
@@ -183,11 +183,11 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
   // 设置样式
   protected applyStyles(ctx: CanvasRenderingContext2D): void {
     ctx.globalAlpha = this.opacity;
-    
+
     if (this.fill && this.fill !== 'transparent') {
       ctx.fillStyle = this.fill;
     }
-    
+
     if (this.stroke && this.strokeWidth > 0) {
       ctx.strokeStyle = this.stroke;
       ctx.lineWidth = this.strokeWidth;
@@ -198,7 +198,7 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
   intersectsWith(other: BaseObject): boolean {
     const thisBounds = this.getBounds();
     const otherBounds = other.getBounds();
-    
+
     return !(
       thisBounds.left > otherBounds.left + otherBounds.width ||
       thisBounds.left + thisBounds.width < otherBounds.left ||
@@ -211,7 +211,7 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
   getCenter(): Point {
     return {
       x: this.transform.x,
-      y: this.transform.y
+      y: this.transform.y,
     };
   }
 
@@ -233,12 +233,12 @@ export abstract class BaseObject extends EventEmitter implements RenderObject {
       strokeWidth: this.strokeWidth,
       opacity: this.opacity,
       visible: this.visible,
-      selectable: this.selectable
+      selectable: this.selectable,
     };
   }
 
   // 从JSON创建对象
-  static fromJSON(data: any): BaseObject {
+  static fromJSON(_data: any): BaseObject {
     // 这个方法需要在子类中实现具体的创建逻辑
     throw new Error('fromJSON method must be implemented in subclass');
   }

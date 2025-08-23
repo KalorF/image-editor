@@ -1,5 +1,11 @@
 // 钩子管理器
-import type { HookCallback, TypedHookManager, EditorHookType, TypedHookCallback, HookParameterMap } from '../types';
+import type {
+  HookCallback,
+  TypedHookManager,
+  EditorHookType,
+  TypedHookCallback,
+  HookParameterMap,
+} from '../types';
 
 interface Hook {
   callback: HookCallback;
@@ -12,9 +18,9 @@ export class HookManager implements TypedHookManager {
 
   // 类型安全的注册前置钩子
   before<T extends EditorHookType>(
-    hookName: T, 
-    callback: TypedHookCallback<T>, 
-    priority?: number
+    hookName: T,
+    callback: TypedHookCallback<T>,
+    priority?: number,
   ): void;
   // 向后兼容的注册前置钩子
   before(hookName: string, callback: HookCallback, priority?: number): void;
@@ -24,9 +30,9 @@ export class HookManager implements TypedHookManager {
 
   // 类型安全的注册后置钩子
   after<T extends EditorHookType>(
-    hookName: T, 
-    callback: TypedHookCallback<T>, 
-    priority?: number
+    hookName: T,
+    callback: TypedHookCallback<T>,
+    priority?: number,
   ): void;
   // 向后兼容的注册后置钩子
   after(hookName: string, callback: HookCallback, priority?: number): void;
@@ -36,10 +42,10 @@ export class HookManager implements TypedHookManager {
 
   // 添加钩子
   private addHook(
-    hookMap: Map<string, Hook[]>, 
-    hookName: string, 
-    callback: HookCallback, 
-    priority: number
+    hookMap: Map<string, Hook[]>,
+    hookName: string,
+    callback: HookCallback,
+    priority: number,
   ): void {
     if (!hookMap.has(hookName)) {
       hookMap.set(hookName, []);
@@ -47,7 +53,7 @@ export class HookManager implements TypedHookManager {
 
     const hooks = hookMap.get(hookName)!;
     hooks.push({ callback, priority });
-    
+
     // 按优先级排序（数字越大优先级越高）
     hooks.sort((a, b) => b.priority - a.priority);
   }
@@ -55,14 +61,14 @@ export class HookManager implements TypedHookManager {
   // 移除钩子
   removeHook(hookName: string, callback: HookCallback, type: 'before' | 'after' = 'before'): void {
     const hookMap = type === 'before' ? this.beforeHooks : this.afterHooks;
-    
+
     if (!hookMap.has(hookName)) {
       return;
     }
 
     const hooks = hookMap.get(hookName)!;
     const index = hooks.findIndex(hook => hook.callback === callback);
-    
+
     if (index !== -1) {
       hooks.splice(index, 1);
     }
@@ -74,7 +80,7 @@ export class HookManager implements TypedHookManager {
 
   // 类型安全的触发钩子
   trigger<T extends EditorHookType>(
-    hookName: T, 
+    hookName: T,
     ...args: HookParameterMap[T]
   ): { beforeResults: any[]; afterResults: any[] };
   // 向后兼容的触发钩子
@@ -82,7 +88,7 @@ export class HookManager implements TypedHookManager {
   trigger(hookName: string, ...args: any[]): { beforeResults: any[]; afterResults: any[] } {
     const beforeResults = this.executeHooks(this.beforeHooks, hookName, ...args);
     const afterResults = this.executeHooks(this.afterHooks, hookName, ...args);
-    
+
     return { beforeResults, afterResults };
   }
 
@@ -94,12 +100,12 @@ export class HookManager implements TypedHookManager {
     }
 
     const results: any[] = [];
-    
+
     for (const hook of hooks) {
       try {
         const result = hook.callback(...args);
         results.push(result);
-        
+
         // 如果钩子返回false，停止执行后续钩子
         if (result === false) {
           break;

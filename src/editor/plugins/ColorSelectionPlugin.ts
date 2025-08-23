@@ -1,9 +1,9 @@
 // 颜色选区插件 - 通过圆形选区和洪水算法进行颜色选择
-import type { Plugin, Point } from '../types';
-import { EditorHooks, EditorEvents } from '../types';
-import { ImageObject } from '../objects/ImageObject';
 import type { Editor } from '../Editor';
-
+import { ImageObject } from '../objects/ImageObject';
+import type { Plugin, Point } from '../types';
+import { EditorEvents, EditorHooks, EditorTools } from '../types';
+import { cloneCanvas } from '../utils/math';
 
 export interface ColorSelectionPluginOptions {
   enabled?: boolean;
@@ -16,20 +16,20 @@ export interface ColorSelectionPluginOptions {
 export class ColorSelectionPlugin implements Plugin<Editor> {
   name = 'colorSelection';
   version = '1.0.0';
-  
+
   private editor!: Editor;
   private options: ColorSelectionPluginOptions;
-  
+
   // 选区状态
   private isSelecting: boolean = false;
   private startPoint: Point | null = null;
   private currentPoint: Point | null = null;
   private currentImageObject: ImageObject | null = null;
-  
+
   // 性能优化：限制重渲染频率
   private lastRenderTime: number = 0;
   private renderDelay: number = 16; // 约60fps
-  
+
   // 选区结果
   private selectionMask: Uint8Array | null = null;
   private selectionMaskImageObject: ImageObject | null = null; // 跟踪selectionMask属于哪个图像对象
@@ -38,7 +38,16 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
   private rafId: number | null = null;
   private liveComputePending: boolean = false;
   private lastPreviewParams: { cx: number; cy: number; r: number; tolerance: number } | null = null;
-  private lowResCache: WeakMap<ImageObject, { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; imageData: ImageData; scaleX: number; scaleY: number } > = new WeakMap();
+  private lowResCache: WeakMap<
+    ImageObject,
+    {
+      canvas: HTMLCanvasElement;
+      ctx: CanvasRenderingContext2D;
+      imageData: ImageData;
+      scaleX: number;
+      scaleY: number;
+    }
+  > = new WeakMap();
   private fullImageDataCache: WeakMap<ImageObject, ImageData> = new WeakMap();
   private previewMaskBuffer: Uint8Array | null = null;
   private maxPreviewDim: number = 288; // 低分辨率实时预览上限尺寸，平衡速度与质量
@@ -49,10 +58,11 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
   private pendingPreviewJobId: number | null = null;
   private pendingFinalJobId: number | null = null;
   private pendingFinalTarget: ImageObject | null = null;
+  private tempRenderMaskCanvas?: HTMLCanvasElement | null = null;
 
   // 渲染钩子引用，便于移除
   private drawHook = (ctx: CanvasRenderingContext2D) => this.drawCircleSelection(ctx);
-  
+
   constructor(options: ColorSelectionPluginOptions = {}) {
     this.options = {
       enabled: true,
@@ -60,16 +70,16 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       selectionColor: '#00FF00',
       selectionOpacity: 0.5, // 调整为与 MaskBrushPlugin 一致的透明度
       mode: 'add',
-      ...options
+      ...options,
     };
   }
 
   install(editor: Editor): void {
     this.editor = editor;
-    
+
     // 注册鼠标事件钩子
     this.registerEventHooks();
-    
+
     // 注册渲染钩子，用于绘制实时圆形选区
     this.editor.hooks.after(EditorHooks.RENDER_AFTER, this.drawHook);
 
@@ -79,10 +89,10 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       const url = new URL('./workers/colorSelectionWorker.ts', import.meta.url);
       this.worker = new Worker(url, { type: 'module' });
       this.worker.onmessage = this.onWorkerMessage;
-          } catch {
-        this.worker = null; // 不支持则回退主线程
-      }
-    
+    } catch {
+      this.worker = null; // 不支持则回退主线程
+    }
+
     // 添加插件方法到编辑器
     (editor as any).colorSelection = {
       enable: () => this.enable(),
@@ -97,16 +107,16 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       getTolerance: () => this.options.tolerance,
       getSelectionColor: () => this.options.selectionColor,
       getSelectionOpacity: () => this.options.selectionOpacity,
-      getMode: () => this.options.mode
+      getMode: () => this.options.mode,
     };
   }
 
   uninstall(editor: Editor): void {
     this.unregisterEventHooks();
     this.clearSelection();
-    
+
     this.editor.hooks.removeHook(EditorHooks.RENDER_AFTER, this.drawHook, 'after');
-    
+
     if (this.worker) {
       this.worker.terminate();
       this.worker = null;
@@ -132,7 +142,7 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
   }
 
   private onMouseDown = (worldPoint: Point, event: MouseEvent) => {
-    if (!this.options.enabled || this.editor.getTool() !== 'colorSelection') {
+    if (!this.options.enabled || this.editor.getTool() !== EditorTools.COLOR_SELECTION) {
       return; // 未处理事件，继续默认行为
     }
 
@@ -142,13 +152,13 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
     }
 
     const hitObject = this.editor.getObjectAt(worldPoint);
-    
+
     if (hitObject && hitObject instanceof ImageObject) {
       this.isSelecting = true;
       this.startPoint = worldPoint;
       this.currentPoint = worldPoint;
       this.currentImageObject = hitObject;
-      
+
       // 取消正在进行的任务，但不清除现有选区
       if (this.rafId !== null) {
         cancelAnimationFrame(this.rafId);
@@ -161,12 +171,12 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
       // 准备低分辨率缓存以便拖动实时预览
       this.prepareLowResCache(hitObject);
-      
+
       event.preventDefault();
       event.stopPropagation();
       return true; // 已处理事件，阻止默认行为
     }
-    
+
     // 没有命中图像对象，继续默认行为
   };
 
@@ -179,14 +189,14 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
     // 计划一次实时预览计算（使用 RAF 合并多次触发）
     this.scheduleLivePreview();
-    
+
     // 仍保留渲染请求以绘制圆形提示（可选）
     const now = performance.now();
     if (now - this.lastRenderTime > this.renderDelay) {
       this.editor.requestRender();
       this.lastRenderTime = now;
     }
-    
+
     event.preventDefault();
     return true; // 已处理事件，阻止默认行为
   };
@@ -202,13 +212,13 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
       // 鼠标抬起时执行一次高分辨率颜色选择，替换预览
       this.performColorSelection();
-      
+
       // 触发选择完成事件（预先发出，最终结果异步到达）
-      this.editor.emit(EditorEvents.COLOR_SELECTION_COMPLETED, { 
+      this.editor.emit(EditorEvents.COLOR_SELECTION_COMPLETED, {
         imageObject: this.currentImageObject,
-        tolerance: this.options.tolerance 
+        tolerance: this.options.tolerance,
       });
-      
+
       // 停止交互，但保留预览画面，等待最终结果到达
       this.isSelecting = false;
       this.startPoint = null;
@@ -262,16 +272,19 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       // 检查是否需要合并现有选区
       let finalMask: Uint8Array;
       const target = this.pendingFinalTarget;
-      const hasGlobalSelection = this.selectionMask && this.selectionMask.length === mask.length && this.selectionMaskImageObject === target;
+      const hasGlobalSelection =
+        this.selectionMask &&
+        this.selectionMask.length === mask.length &&
+        this.selectionMaskImageObject === target;
       const existingMaskData = target ? target.getMaskData() : null;
-      
+
       if (hasGlobalSelection) {
         // 有全局选区，直接合并
         finalMask = this.mergeMasks(this.selectionMask!, mask);
       } else if (existingMaskData) {
         // 没有全局选区，但图像对象有现有选区，需要提取并合并
         let existingMask = this.extractMaskFromImageData(existingMaskData);
-        
+
         // 如果分辨率不同，需要缩放现有选区到当前分辨率
         if (existingMaskData.width !== width || existingMaskData.height !== height) {
           existingMask = this.upscaleMask(
@@ -279,10 +292,10 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
             existingMaskData.width,
             existingMaskData.height,
             width,
-            height
+            height,
           );
         }
-        
+
         finalMask = this.mergeMasks(existingMask, mask);
       } else if (this.options.mode === 'remove') {
         // Remove模式下，如果既没有全局选区也没有图像对象选区，则不创建选区
@@ -293,7 +306,7 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
         // Add模式下，使用新选区
         finalMask = mask;
       }
-      
+
       // 使用 ImageObject 的 maskCanvas 系统
       if (target) {
         this.createSelectionCanvasFromMask(finalMask, width, height, target);
@@ -315,7 +328,8 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
   // 实时预览：优先用 worker 在低分辨率上计算
   private scheduleLivePreview(): void {
-    if (!this.isSelecting || !this.startPoint || !this.currentPoint || !this.currentImageObject) return;
+    if (!this.isSelecting || !this.startPoint || !this.currentPoint || !this.currentImageObject)
+      return;
     if (this.liveComputePending) return;
 
     this.liveComputePending = true;
@@ -365,12 +379,19 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       ctx,
       imageData,
       scaleX: lowW / width,
-      scaleY: lowH / height
+      scaleY: lowH / height,
     });
   }
 
   private computeLivePreviewWithWorker(): void {
-    if (!this.isSelecting || !this.startPoint || !this.currentPoint || !this.currentImageObject || !this.worker) return;
+    if (
+      !this.isSelecting ||
+      !this.startPoint ||
+      !this.currentPoint ||
+      !this.currentImageObject ||
+      !this.worker
+    )
+      return;
     const ready = this.lowResCache.get(this.currentImageObject);
     if (!ready) return;
 
@@ -378,15 +399,17 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
     // 使用与最终选区一致的半径计算方式（世界坐标半径）
     const worldRadius = Math.sqrt(
-      Math.pow(this.currentPoint.x - this.startPoint.x, 2) + 
-      Math.pow(this.currentPoint.y - this.startPoint.y, 2)
+      Math.pow(this.currentPoint.x - this.startPoint.x, 2) +
+        Math.pow(this.currentPoint.y - this.startPoint.y, 2),
     );
 
     const localStart = this.worldToImageLocal(this.startPoint, this.currentImageObject);
     const centerLow = { x: localStart.x * scaleX, y: localStart.y * scaleY };
-    
+
     // 统一的半径转换：世界坐标半径 -> 图像本地半径 -> 低分辨率半径
-    const localRadius = worldRadius / Math.min(this.currentImageObject.transform.scaleX, this.currentImageObject.transform.scaleY);
+    const localRadius =
+      worldRadius /
+      Math.min(this.currentImageObject.transform.scaleX, this.currentImageObject.transform.scaleY);
     const radiusLow = localRadius * Math.min(scaleX, scaleY);
 
     const tol = this.options.tolerance || 32;
@@ -394,7 +417,12 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       const dx = this.lastPreviewParams.cx - centerLow.x;
       const dy = this.lastPreviewParams.cy - centerLow.y;
       const dr = this.lastPreviewParams.r - radiusLow;
-      if (Math.abs(dx) < 0.75 && Math.abs(dy) < 0.75 && Math.abs(dr) < 0.75 && this.lastPreviewParams.tolerance === tol) {
+      if (
+        Math.abs(dx) < 0.75 &&
+        Math.abs(dy) < 0.75 &&
+        Math.abs(dr) < 0.75 &&
+        this.lastPreviewParams.tolerance === tol
+      ) {
         return;
       }
     }
@@ -403,7 +431,12 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
     this.pendingPreviewJobId = jobId;
 
     // 收集预览种子点（像素坐标）
-    let seedPointsLow = this.getCircleSeedPointsInPixels(centerLow, radiusLow, imageData.width, imageData.height);
+    let seedPointsLow = this.getCircleSeedPointsInPixels(
+      centerLow,
+      radiusLow,
+      imageData.width,
+      imageData.height,
+    );
     if (seedPointsLow.length === 0) {
       // 兜底：取圆心四舍五入到最近像素
       const x = Math.max(0, Math.min(imageData.width - 1, Math.round(centerLow.x)));
@@ -420,20 +453,21 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       height: imageData.height,
       data: imageData.data,
       seedPoints: seedPointsLow,
-      tolerance: tol
+      tolerance: tol,
     } as const;
 
     try {
       this.worker.postMessage(msg);
       this.lastPreviewParams = { cx: centerLow.x, cy: centerLow.y, r: radiusLow, tolerance: tol };
-          } catch {
-        // Worker 通信失败，回退主线程
-        this.computeLivePreview();
-      }
+    } catch {
+      // Worker 通信失败，回退主线程
+      this.computeLivePreview();
+    }
   }
 
   private computeLivePreview(): void {
-    if (!this.isSelecting || !this.startPoint || !this.currentPoint || !this.currentImageObject) return;
+    if (!this.isSelecting || !this.startPoint || !this.currentPoint || !this.currentImageObject)
+      return;
 
     const ready = this.lowResCache.get(this.currentImageObject);
     if (!ready) {
@@ -447,15 +481,17 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
     // 使用与最终选区一致的半径计算方式（世界坐标半径）
     const worldRadius = Math.sqrt(
-      Math.pow(this.currentPoint.x - this.startPoint.x, 2) + 
-      Math.pow(this.currentPoint.y - this.startPoint.y, 2)
+      Math.pow(this.currentPoint.x - this.startPoint.x, 2) +
+        Math.pow(this.currentPoint.y - this.startPoint.y, 2),
     );
 
     const localStart = this.worldToImageLocal(this.startPoint, this.currentImageObject);
     const centerLow = { x: localStart.x * scaleX, y: localStart.y * scaleY };
-    
+
     // 统一的半径转换：世界坐标半径 -> 图像本地半径 -> 低分辨率半径
-    const localRadius = worldRadius / Math.min(this.currentImageObject.transform.scaleX, this.currentImageObject.transform.scaleY);
+    const localRadius =
+      worldRadius /
+      Math.min(this.currentImageObject.transform.scaleX, this.currentImageObject.transform.scaleY);
     const radiusLow = localRadius * Math.min(scaleX, scaleY);
 
     // 距离变化/容差未变动时跳过昂贵计算
@@ -464,7 +500,12 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       const dx = this.lastPreviewParams.cx - centerLow.x;
       const dy = this.lastPreviewParams.cy - centerLow.y;
       const dr = this.lastPreviewParams.r - radiusLow;
-      if (Math.abs(dx) < 0.75 && Math.abs(dy) < 0.75 && Math.abs(dr) < 0.75 && this.lastPreviewParams.tolerance === tol) {
+      if (
+        Math.abs(dx) < 0.75 &&
+        Math.abs(dy) < 0.75 &&
+        Math.abs(dr) < 0.75 &&
+        this.lastPreviewParams.tolerance === tol
+      ) {
         return;
       }
     }
@@ -474,7 +515,7 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       centerLow,
       radiusLow,
       imageData.width,
-      imageData.height
+      imageData.height,
     );
     if (seedPointsLow.length === 0) {
       const x = Math.max(0, Math.min(imageData.width - 1, Math.round(centerLow.x)));
@@ -490,7 +531,12 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
     // 创建预览显示，合并已有选区
     if (this.currentImageObject) {
-      this.createPreviewSelectionDisplay(lowResMask, imageData.width, imageData.height, this.currentImageObject);
+      this.createPreviewSelectionDisplay(
+        lowResMask,
+        imageData.width,
+        imageData.height,
+        this.currentImageObject,
+      );
     }
 
     this.editor.requestRender();
@@ -498,32 +544,37 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
   private drawCircleSelection(ctx: CanvasRenderingContext2D): void {
     // 只有在正在选择且工具激活时才绘制
-    if (!this.isSelecting || !this.startPoint || !this.currentPoint || 
-        !this.options.enabled || this.editor.getTool() !== 'colorSelection') {
+    if (
+      !this.isSelecting ||
+      !this.startPoint ||
+      !this.currentPoint ||
+      !this.options.enabled ||
+      this.editor.getTool() !== 'colorSelection'
+    ) {
       return;
     }
-    
+
     // 重要：在render:after钩子中，context已经应用了viewport变换
     // 我们需要重置变换矩阵，使用原始的屏幕坐标系
     ctx.save();
-    
+
     // 重置为单位矩阵，但保持DPR缩放
     const devicePixelRatio = window.devicePixelRatio || 1;
     ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-    
+
     // 将世界坐标转换到屏幕坐标
     const viewportStart = this.editor.viewport.worldToScreen(this.startPoint);
     const viewportCurrent = this.editor.viewport.worldToScreen(this.currentPoint);
-    
+
     // 在屏幕坐标中计算半径，确保准确性
     const viewportRadius = Math.sqrt(
-      Math.pow(viewportCurrent.x - viewportStart.x, 2) + 
-      Math.pow(viewportCurrent.y - viewportStart.y, 2)
+      Math.pow(viewportCurrent.x - viewportStart.x, 2) +
+        Math.pow(viewportCurrent.y - viewportStart.y, 2),
     );
-    
+
     // 使用屏幕坐标绘制
     const viewportCenter = viewportStart;
-    
+
     // 绘制圆形选区
     ctx.strokeStyle = this.options.selectionColor || '#00FF00';
     ctx.lineWidth = 2;
@@ -532,7 +583,7 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
     ctx.beginPath();
     ctx.arc(viewportCenter.x, viewportCenter.y, viewportRadius, 0, Math.PI * 2);
     ctx.stroke();
-    
+
     // 恢复原来的变换矩阵
     ctx.restore();
   }
@@ -567,11 +618,11 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
     // 映射低分辨率蒙版到高分辨率
     const highResMask = this.upscaleMask(
-      lowResMask, 
-      lowResImageData.width, 
+      lowResMask,
+      lowResImageData.width,
       lowResImageData.height,
       highResImageData.width,
-      highResImageData.height
+      highResImageData.height,
     );
 
     // 可选：在高分辨率上进行边缘细化
@@ -586,10 +637,15 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
     this.selectionMaskImageObject = this.currentImageObject;
 
     // 创建高分辨率选区蒙版并应用
-    this.createSelectionCanvasFromMask(finalMask, highResImageData.width, highResImageData.height, this.currentImageObject);
-    
+    this.createSelectionCanvasFromMask(
+      finalMask,
+      highResImageData.width,
+      highResImageData.height,
+      this.currentImageObject,
+    );
+
     // 记录历史（插件影响对象）
-          this.editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Color selection applied');
+    this.editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Color selection applied');
 
     this.editor.requestRender();
   }
@@ -599,8 +655,8 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
     // 计算世界坐标半径（与实时预览保持一致）
     const worldRadius = Math.sqrt(
-      Math.pow(this.currentPoint.x - this.startPoint.x, 2) + 
-      Math.pow(this.currentPoint.y - this.startPoint.y, 2)
+      Math.pow(this.currentPoint.x - this.startPoint.x, 2) +
+        Math.pow(this.currentPoint.y - this.startPoint.y, 2),
     );
 
     // 获取图像数据（带缓存）
@@ -609,10 +665,17 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
     // 转换为图像本地坐标系
     const localStart = this.worldToImageLocal(this.startPoint, this.currentImageObject);
-    const localRadius = worldRadius / Math.min(this.currentImageObject.transform.scaleX, this.currentImageObject.transform.scaleY);
+    const localRadius =
+      worldRadius /
+      Math.min(this.currentImageObject.transform.scaleX, this.currentImageObject.transform.scaleY);
 
     // 使用与实时预览一致的种子点生成方式
-    let seedPoints = this.getCircleSeedPointsInPixels(localStart, localRadius, imageData.width, imageData.height);
+    let seedPoints = this.getCircleSeedPointsInPixels(
+      localStart,
+      localRadius,
+      imageData.width,
+      imageData.height,
+    );
     if (seedPoints.length === 0) {
       // 兜底：取中心像素
       const x = Math.max(0, Math.min(imageData.width - 1, Math.round(localStart.x)));
@@ -635,28 +698,31 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
         height: imageData.height,
         data: imageData.data,
         seedPoints: seedPoints,
-        tolerance: tol
+        tolerance: tol,
       } as const;
       try {
         this.worker.postMessage(msg);
         return; // 等待 worker 回调应用结果
-              } catch {
-          // Worker 通信失败，回退主线程
-          this.pendingFinalTarget = null;
-        }
+      } catch {
+        // Worker 通信失败，回退主线程
+        this.pendingFinalTarget = null;
+      }
     }
-    
+
     // 主线程执行洪水算法（高分辨率）
     const newMask = this.floodFill(imageData, seedPoints, tol);
-    
+
     // 若结果为空，保留当前预览，不覆盖
     const hasAny = newMask.some(v => v > 0);
     if (!hasAny) return;
 
     // 检查是否已有选区，如果有则合并
-    const hasGlobalSelection = this.selectionMask && this.selectionMask.length === newMask.length && this.selectionMaskImageObject === this.currentImageObject;
+    const hasGlobalSelection =
+      this.selectionMask &&
+      this.selectionMask.length === newMask.length &&
+      this.selectionMaskImageObject === this.currentImageObject;
     const existingMaskData = this.currentImageObject ? this.currentImageObject.getMaskData() : null;
-    
+
     if (hasGlobalSelection) {
       // 有全局选区，直接合并
       this.selectionMask = this.mergeMasks(this.selectionMask!, newMask);
@@ -664,18 +730,21 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
     } else if (existingMaskData) {
       // 没有全局选区，但图像对象有现有选区，需要提取并合并
       let existingMask = this.extractMaskFromImageData(existingMaskData);
-      
+
       // 如果分辨率不同，需要缩放现有选区到当前分辨率
-      if (existingMaskData.width !== imageData.width || existingMaskData.height !== imageData.height) {
+      if (
+        existingMaskData.width !== imageData.width ||
+        existingMaskData.height !== imageData.height
+      ) {
         existingMask = this.upscaleMask(
           existingMask,
           existingMaskData.width,
           existingMaskData.height,
           imageData.width,
-          imageData.height
+          imageData.height,
         );
       }
-      
+
       this.selectionMask = this.mergeMasks(existingMask, newMask);
       this.selectionMaskImageObject = this.currentImageObject;
     } else if (this.options.mode === 'remove') {
@@ -697,13 +766,13 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       // 创建临时画布来获取图像数据
       const tempCanvas = document.createElement('canvas');
       const tempCtx = tempCanvas.getContext('2d')!;
-      
+
       tempCanvas.width = imageObj.width;
       tempCanvas.height = imageObj.height;
-      
+
       // 绘制图像到临时画布
       tempCtx.drawImage(imageObj.getImage(), 0, 0);
-      
+
       return tempCtx.getImageData(0, 0, imageObj.width, imageObj.height);
     } catch (error) {
       console.error('Failed to get image data:', error);
@@ -729,30 +798,30 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
     const data = imageData.data;
     const mask = new Uint8Array(width * height);
     const visited = new Uint8Array(width * height);
-    
+
     // 收集所有种子点的颜色
-    const seedColors: { r: number, g: number, b: number }[] = [];
+    const seedColors: { r: number; g: number; b: number }[] = [];
     for (const seed of seedPoints) {
       const index = (seed.y * width + seed.x) * 4;
       if (index >= 0 && index < data.length) {
         seedColors.push({
           r: data[index],
           g: data[index + 1],
-          b: data[index + 2]
+          b: data[index + 2],
         });
       }
     }
-    
+
     // 如果没有有效的种子点，返回空蒙版
     if (seedColors.length === 0) {
       return mask;
     }
-    
+
     // 使用广度优先搜索进行洪水填充（优化：数组队列 + 无 sqrt）
     const queueX: number[] = [];
     const queueY: number[] = [];
     let head = 0;
-    
+
     // 标记种子点为已访问
     for (const seed of seedPoints) {
       const maskIndex = seed.y * width + seed.x;
@@ -763,21 +832,21 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
         queueY.push(seed.y);
       }
     }
-    
+
     const tolSq = tolerance * tolerance;
-    
+
     while (head < queueX.length) {
       const cx = queueX[head];
       const cy = queueY[head];
       head++;
-      
+
       // 四邻域
       if (cx - 1 >= 0) maybeVisit(cx - 1, cy);
       if (cx + 1 < width) maybeVisit(cx + 1, cy);
       if (cy - 1 >= 0) maybeVisit(cx, cy - 1);
       if (cy + 1 < height) maybeVisit(cx, cy + 1);
     }
-    
+
     return mask;
 
     function maybeVisit(px: number, py: number) {
@@ -807,25 +876,30 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
   private createSelectionMask(): void {
     if (!this.selectionMask || !this.currentImageObject) return;
-    
+
     const width = this.currentImageObject.width;
     const height = this.currentImageObject.height;
-    
+    if (!this.tempRenderMaskCanvas) {
+      this.tempRenderMaskCanvas = document.createElement('canvas');
+      this.tempRenderMaskCanvas.width = width;
+      this.tempRenderMaskCanvas.height = height;
+    }
+
     // 将蒙版数据转换为 ImageData，alpha 通道设置为完全不透明，透明度由 ImageObject 的 maskOpacity 控制
     const imageData = new ImageData(width, height);
     const data = imageData.data;
-    
+
     for (let i = 0; i < this.selectionMask.length; i++) {
       const pixelIndex = i * 4;
       const maskValue = this.selectionMask[i];
-      
+
       if (maskValue > 0) {
         // 设置选区颜色
         const color = this.hexToRgb(this.options.selectionColor || '#00FF00');
-        data[pixelIndex] = color.r;     // R
+        data[pixelIndex] = color.r; // R
         data[pixelIndex + 1] = color.g; // G
         data[pixelIndex + 2] = color.b; // B
-        data[pixelIndex + 3] = 255;     // 完全不透明，透明度由 maskOpacity 控制
+        data[pixelIndex + 3] = 255; // 完全不透明，透明度由 maskOpacity 控制
       } else {
         // 透明区域
         data[pixelIndex] = 0;
@@ -834,16 +908,29 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
         data[pixelIndex + 3] = 0;
       }
     }
-    
+
+    const tempCtx = this.tempRenderMaskCanvas.getContext('2d')!;
+
+    tempCtx.putImageData(imageData, 0, 0);
     // 使用 ImageObject 的 maskCanvas 系统
-    this.currentImageObject.setMaskData(imageData);
+    this.currentImageObject.setMaskData(cloneCanvas(this.tempRenderMaskCanvas));
     this.currentImageObject.setMaskColor(this.options.selectionColor || '#00FF00');
     this.currentImageObject.setMaskOpacity(this.options.selectionOpacity || 0.5);
   }
 
-  private createSelectionCanvasFromMask(mask: Uint8Array, width: number, height: number, targetImageObject?: ImageObject): void {
+  private createSelectionCanvasFromMask(
+    mask: Uint8Array,
+    width: number,
+    height: number,
+    targetImageObject?: ImageObject,
+  ): void {
     const imageObject = targetImageObject || this.currentImageObject;
     if (!imageObject) return;
+    if (!this.tempRenderMaskCanvas) {
+      this.tempRenderMaskCanvas = document.createElement('canvas');
+      this.tempRenderMaskCanvas.width = width;
+      this.tempRenderMaskCanvas.height = height;
+    }
 
     // 创建 ImageData，alpha 通道设置为完全不透明，透明度由 ImageObject 的 maskOpacity 控制
     const imageData = new ImageData(width, height);
@@ -867,15 +954,21 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       }
     }
 
+    const tempCtx = this.tempRenderMaskCanvas.getContext('2d')!;
+    tempCtx.clearRect(0, 0, width, height);
+    tempCtx.save();
+    tempCtx.putImageData(imageData, 0, 0);
+
     // 使用 ImageObject 的 maskCanvas 系统
-    imageObject.setMaskData(imageData);
+    // imageObject.setMaskData(imageData);
+    imageObject.setMaskData(cloneCanvas(this.tempRenderMaskCanvas));
     imageObject.setMaskColor(this.options.selectionColor || '#00FF00');
     imageObject.setMaskOpacity(this.options.selectionOpacity || 0.5);
   }
 
   private applySelectionToImage(): void {
     if (!this.currentImageObject) return;
-    
+
     // 掩码数据已经通过 setMaskData 方法设置到 ImageObject 中
     // 只需要请求重渲染
     this.editor.requestRender();
@@ -883,11 +976,11 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
   private worldToImageLocal(worldPoint: Point, imageObj: ImageObject): Point {
     const transform = imageObj.transform;
-    
+
     // 将世界坐标转换为相对于图像中心的坐标
     let relativeX = worldPoint.x - transform.x;
     let relativeY = worldPoint.y - transform.y;
-    
+
     // 应用旋转的逆变换
     if (transform.rotation !== 0) {
       const cos = Math.cos(-transform.rotation);
@@ -897,27 +990,29 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       relativeX = rotatedX;
       relativeY = rotatedY;
     }
-    
+
     // 应用缩放的逆变换
     relativeX = relativeX / transform.scaleX;
     relativeY = relativeY / transform.scaleY;
-    
+
     // 转换为图像本地坐标（左上角为原点）
     const localX = relativeX + imageObj.width / 2;
     const localY = relativeY + imageObj.height / 2;
-    
+
     return { x: localX, y: localY };
   }
 
-  private hexToRgb(hex: string): { r: number, g: number, b: number } {
+  private hexToRgb(hex: string): { r: number; g: number; b: number } {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result ? {
-      r: parseInt(result[1], 16),
-      g: parseInt(result[2], 16),
-      b: parseInt(result[3], 16)
-    } : { r: 0, g: 255, b: 0 };
+    return result
+      ? {
+          r: parseInt(result[1], 16),
+          g: parseInt(result[2], 16),
+          b: parseInt(result[3], 16),
+        }
+      : { r: 0, g: 255, b: 0 };
   }
-  
+
   // 公共方法
   public enable(): void {
     this.options.enabled = true;
@@ -946,7 +1041,9 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
   public setTolerance(tolerance: number): void {
     this.options.tolerance = Math.max(0, Math.min(255, tolerance));
     this.lastPreviewParams = null; // 容差改变，强制刷新
-    this.editor.emit(EditorEvents.COLOR_SELECTION_TOLERANCE_CHANGED, { tolerance: this.options.tolerance });
+    this.editor.emit(EditorEvents.COLOR_SELECTION_TOLERANCE_CHANGED, {
+      tolerance: this.options.tolerance,
+    });
   }
 
   public setSelectionColor(color: string): void {
@@ -956,7 +1053,9 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
   public setSelectionOpacity(opacity: number): void {
     this.options.selectionOpacity = Math.max(0, Math.min(1, opacity));
-    this.editor.emit(EditorEvents.COLOR_SELECTION_OPACITY_CHANGED, { opacity: this.options.selectionOpacity });
+    this.editor.emit(EditorEvents.COLOR_SELECTION_OPACITY_CHANGED, {
+      opacity: this.options.selectionOpacity,
+    });
   }
 
   public setMode(mode: 'add' | 'remove'): void {
@@ -967,7 +1066,7 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
   public clearSelection(): void {
     this.selectionMask = null;
     this.selectionMaskImageObject = null;
-    
+
     // 清除所有图像对象的选区
     const objects = this.editor.objectManager.getAllObjects();
     objects.forEach((obj: any) => {
@@ -975,7 +1074,7 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
         (obj as ImageObject).clearMask();
       }
     });
-    
+
     // 取消 RAF
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
@@ -997,7 +1096,12 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
   }
 
   // 基于像素坐标的圆形区域采样（不做世界->本地转换）
-  private getCircleSeedPointsInPixels(centerPx: Point, radiusPx: number, width: number, height: number): Point[] {
+  private getCircleSeedPointsInPixels(
+    centerPx: Point,
+    radiusPx: number,
+    width: number,
+    height: number,
+  ): Point[] {
     const seedPoints: Point[] = [];
     const sampleStep = Math.max(1, Math.floor(radiusPx / 10));
 
@@ -1022,12 +1126,12 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
   private extractMaskFromImageData(imageData: ImageData): Uint8Array {
     const data = imageData.data;
     const mask = new Uint8Array(imageData.width * imageData.height);
-    
+
     for (let i = 0; i < mask.length; i++) {
       const alpha = data[i * 4 + 3]; // alpha通道
       mask[i] = alpha > 0 ? 255 : 0; // 有透明度说明有选区
     }
-    
+
     return mask;
   }
 
@@ -1037,19 +1141,19 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
     lowWidth: number,
     lowHeight: number,
     highWidth: number,
-    highHeight: number
+    highHeight: number,
   ): Uint8Array {
     const highResMask = new Uint8Array(highWidth * highHeight);
-    
+
     const scaleX = highWidth / lowWidth;
     const scaleY = highHeight / lowHeight;
-    
+
     for (let y = 0; y < highHeight; y++) {
       for (let x = 0; x < highWidth; x++) {
         // 将高分辨率坐标映射到低分辨率坐标
         const lowX = Math.floor(x / scaleX);
         const lowY = Math.floor(y / scaleY);
-        
+
         // 边界检查
         if (lowX >= 0 && lowX < lowWidth && lowY >= 0 && lowY < lowHeight) {
           const lowIndex = lowY * lowWidth + lowX;
@@ -1058,7 +1162,7 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
         }
       }
     }
-    
+
     return highResMask;
   }
 
@@ -1078,7 +1182,7 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
     const mergedMask = new Uint8Array(existingMask.length);
     const isAddMode = this.options.mode === 'add';
-    
+
     for (let i = 0; i < existingMask.length; i++) {
       if (isAddMode) {
         // Add模式：使用 OR 操作，只要有一个蒙版在该位置有选区，合并后就有选区
@@ -1098,28 +1202,33 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
         }
       }
     }
-    
+
     return mergedMask;
   }
 
   // 创建预览选区的显示，如果有已存在的选区则合并显示
-  private createPreviewSelectionDisplay(previewMask: Uint8Array, width: number, height: number, imageObj: ImageObject): void {
+  private createPreviewSelectionDisplay(
+    previewMask: Uint8Array,
+    width: number,
+    height: number,
+    imageObj: ImageObject,
+  ): void {
     let displayMask = previewMask;
-    
+
     // 在remove模式下，如果没有已有选区，则不显示任何内容
     const existingMaskData = imageObj.getMaskData();
     const hasGlobalSelection = this.selectionMask && this.selectionMaskImageObject === imageObj;
-    
+
     if (this.options.mode === 'remove' && !existingMaskData && !hasGlobalSelection) {
       // Remove模式下没有已有选区，不显示预览
       return;
     }
-    
+
     // 检查图像对象本身是否已有选区
     if (existingMaskData) {
       // 提取图像对象已有的选区蒙版
       const existingMask = this.extractMaskFromImageData(existingMaskData);
-      
+
       // 如果分辨率不同，需要缩放已有选区到预览分辨率
       if (existingMaskData.width !== width || existingMaskData.height !== height) {
         const scaledExistingMask = this.downscaleMask(
@@ -1127,7 +1236,7 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
           existingMaskData.width,
           existingMaskData.height,
           width,
-          height
+          height,
         );
         displayMask = this.mergeMasks(scaledExistingMask, previewMask);
       } else {
@@ -1136,7 +1245,11 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       }
     }
     // 如果图像对象没有选区，但全局selectionMask属于当前图像，也要合并
-    else if (this.selectionMask && this.selectionMask.length > 0 && this.selectionMaskImageObject === imageObj) {
+    else if (
+      this.selectionMask &&
+      this.selectionMask.length > 0 &&
+      this.selectionMaskImageObject === imageObj
+    ) {
       // 需要将已存在的高分辨率选区缩放到预览分辨率
       const fullImageData = this.getImageDataCached(imageObj);
       if (fullImageData && (fullImageData.width !== width || fullImageData.height !== height)) {
@@ -1146,7 +1259,7 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
           fullImageData.width,
           fullImageData.height,
           width,
-          height
+          height,
         );
         displayMask = this.mergeMasks(scaledExistingMask, previewMask);
       } else if (this.selectionMask.length === previewMask.length) {
@@ -1165,19 +1278,19 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
     highWidth: number,
     highHeight: number,
     lowWidth: number,
-    lowHeight: number
+    lowHeight: number,
   ): Uint8Array {
     const lowResMask = new Uint8Array(lowWidth * lowHeight);
-    
+
     const scaleX = highWidth / lowWidth;
     const scaleY = highHeight / lowHeight;
-    
+
     for (let y = 0; y < lowHeight; y++) {
       for (let x = 0; x < lowWidth; x++) {
         // 将低分辨率坐标映射到高分辨率坐标
         const highX = Math.floor(x * scaleX);
         const highY = Math.floor(y * scaleY);
-        
+
         // 边界检查
         if (highX >= 0 && highX < highWidth && highY >= 0 && highY < highHeight) {
           const highIndex = highY * highWidth + highX;
@@ -1186,7 +1299,7 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
         }
       }
     }
-    
+
     return lowResMask;
   }
 }
