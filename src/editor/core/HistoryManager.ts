@@ -1,7 +1,7 @@
 // 内置历史记录管理器 - 撤销重做功能
 import type { Editor } from '../Editor';
 import { ImageObject } from '../objects/ImageObject';
-import { EditorEvents, EditorHooks, Transform } from '../types';
+import { EditorEvents, EditorHooks, type Transform } from '../types';
 import { EventEmitter } from './EventEmitter';
 
 export interface HistoryOptions {
@@ -66,12 +66,12 @@ export class HistoryManager extends EventEmitter {
     this.bindHistoryHooks();
 
     // 记录构造时的初始状态，确保可撤回到"空白/初始"而不崩溃
-    // try {
-    //   this.setInitialState(this.editor.getState());
-    // } catch (e) {
-    //   // 保底，不影响后续
-    //   console.warn('Failed to capture initial state for history:', e);
-    // }
+    try {
+      this.setInitialState(this.editor.getState());
+    } catch (e) {
+      // 保底，不影响后续
+      console.warn('Failed to capture initial state for history:', e);
+    }
     // 允许紧随其后的首次对象变更立即入栈（不被节流）
     this.lastCaptureTime = 0;
   }
@@ -127,7 +127,7 @@ export class HistoryManager extends EventEmitter {
     const added = this.history.map(state => state.delta.objects?.added);
     const modified = this.history.map(state => state.delta.objects?.modified);
     const removed = this.history.map(state => state.delta.objects?.removed);
-    const all = [...added, ...modified, ...removed].flat().filter(obj => obj);
+    const all = ([...added, ...modified, ...removed] as any).flat().filter((obj: any) => obj);
     for (const obj of all) {
       (obj as any).transform = transform;
     }

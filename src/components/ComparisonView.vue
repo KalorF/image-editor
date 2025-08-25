@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, onBeforeUnmount, watch } from 'vue';
-import { Editor, GridPlugin, MaskBrushPlugin, ColorSelectionPlugin } from '../editor';
+import { Editor } from '../editor';
+import { GridPlugin, MaskBrushPlugin, ColorSelectionPlugin } from '../editor/plugins';
 
 interface Props {
   originalImage?: string;
@@ -387,8 +388,8 @@ const addSampleImages = async () => {
 
   try {
     // 添加图片到编辑器
-    await originalEditor.addImage({src: originalDataURL, x: 100, y: 100, needRecord: false});
-    await previewEditor.addImage({src: previewDataURL, x: 100, y: 100, needRecord: false});
+    await originalEditor.addImage({src: originalDataURL, needRecord: false});
+    await previewEditor.addImage({src: previewDataURL, needRecord: false});
     console.log('对比图像添加成功');
   } catch (error) {
     console.error('添加对比图像失败:', error);
@@ -396,7 +397,7 @@ const addSampleImages = async () => {
 };
 
 // 工具管理
-const setTool = (tool: string) => {
+const setTool = (tool: any) => {
   currentTool.value = tool;
   
   if (originalEditor) {
@@ -674,7 +675,7 @@ defineExpose({
     </div>
 
     <!-- 分割线 -->
-    <div class="divider"></div>
+    <!-- <div class="divider"></div> -->
 
     <!-- 右侧预览图 -->
     <div class="comparison-panel preview-panel">
@@ -699,7 +700,8 @@ defineExpose({
 
 <style scoped>
 .comparison-view {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   width: 100%;
   height: 100%;
   gap: 2px;
@@ -793,6 +795,7 @@ defineExpose({
 .editor-container {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   position: relative;
   background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
 }
@@ -831,9 +834,9 @@ defineExpose({
 }
 
 /* 响应式设计 */
-@media (max-width: 768px) {
+/* @media (max-width: 768px) {
   .comparison-view {
-    flex-direction: column;
+    grid-template-columns: 1fr;
     gap: 2px;
     height: 100%;
   }
@@ -859,5 +862,5 @@ defineExpose({
   .editor-canvas {
     min-height: 250px;
   }
-}
+} */
 </style>
