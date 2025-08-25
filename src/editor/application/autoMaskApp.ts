@@ -3,6 +3,7 @@ import EventEmitter from 'events';
 import { Editor } from '../Editor';
 import { ImageObject } from '../objects/ImageObject';
 import {
+  // ColorSelectionPlugin,
   GridPlugin,
   MaskBrushPlugin,
   MaskRegionPlugin,
@@ -71,6 +72,10 @@ export class AutoMaskApp extends EventEmitter {
           appliedOpacity: 0.4,
         }),
         new OffsetMaskPlugin(),
+        // new ColorSelectionPlugin({
+        //   color: '#21d1d1',
+        //   opacity: 0.4,
+        // }),
       ],
       zoomOptions: this.zoomOptions,
     });
@@ -272,7 +277,7 @@ export class AutoMaskApp extends EventEmitter {
 
   private recordMaskHistory() {
     const images = this.originEditor?.objectManager.getAllObjects();
-    let maskCanvas = (images?.[0] as ImageObject).maskCanvas;
+    let maskCanvas = (images?.[0] as ImageObject)?.maskCanvas;
     if (maskCanvas) {
       if (!this.tempRecordCanvas) {
         this.tempRecordCanvas = document.createElement('canvas');

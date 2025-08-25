@@ -252,6 +252,7 @@ export class MaskRegionPlugin implements Plugin<Editor> {
 
   private onMouseLeave = (_worldPoint: Point, _event: MouseEvent) => {
     this.editor.updateCanvasCursor('default', undefined, false);
+    if (!this.cursorDom) return;
     this.cursorDom!.style.display = 'none';
     this.isMouseOverCanvas = false;
     this.hoveredRegion = null;

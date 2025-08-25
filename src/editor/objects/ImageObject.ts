@@ -26,7 +26,7 @@ class ImageCacheManager {
   private nextIndex = 1;
 
   // 新增：maskData 缓存，使用对象ID作为键
-  private maskDataCache = new Map<string, HTMLCanvasElement>();
+  private maskDataCache = new Map<string, ImageData>();
   private nextMaskId = 1;
 
   static getInstance(): ImageCacheManager {
@@ -59,14 +59,14 @@ class ImageCacheManager {
   }
 
   // 缓存 maskData 并返回ID
-  cacheMaskData(maskData: HTMLCanvasElement): number {
+  cacheMaskData(maskData: ImageData): number {
     const maskId = this.nextMaskId++;
     this.maskDataCache.set(maskId.toString(), maskData);
     return maskId;
   }
 
   // 根据ID获取缓存的 maskData
-  getMaskDataById(maskId: number): HTMLCanvasElement | null {
+  getMaskDataById(maskId: number): ImageData | null {
     return this.maskDataCache.get(maskId.toString()) || null;
   }
 
@@ -365,24 +365,34 @@ export class ImageObject extends BaseObject {
 
   // 获取mask数据
   public getMaskData(): any | null {
-    const canvas = new OffscreenCanvas(this.width, this.height);
-    const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(this.maskCanvas!, 0, 0);
-    return canvas;
     // if (!this.maskCanvas || !this.maskCtx) {
     //   return null;
     // }
 
     // try {
-    //   return this.maskCtx.getImageData(0, 0, this.maskCanvas.width, this.maskCanvas.height);
+    //   const canvas = new OffscreenCanvas(this.width, this.height);
+    //   const ctx = canvas.getContext('2d')!;
+    //   ctx.drawImage(this.maskCanvas!, 0, 0);
+    //   return canvas;
     // } catch (error) {
     //   console.error('Error getting mask data:', error);
     //   return null;
     // }
+
+    if (!this.maskCanvas || !this.maskCtx) {
+      return null;
+    }
+
+    try {
+      return this.maskCtx.getImageData(0, 0, this.maskCanvas.width, this.maskCanvas.height);
+    } catch (error) {
+      console.error('Error getting mask data:', error);
+      return null;
+    }
   }
 
   // 设置mask数据
-  public setMaskData(imageData: HTMLCanvasElement): void {
+  public setMaskData(imageData: ImageData): void {
     if (!this.maskCanvas || !this.maskCtx) {
       // 创建mask画布
       this.maskCanvas = document.createElement('canvas');
@@ -393,7 +403,10 @@ export class ImageObject extends BaseObject {
     this.maskCanvas.height = imageData.height;
 
     try {
-      this.maskCtx.drawImage(imageData, 0, 0, this.width, this.height);
+      this.maskCtx.clearRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
+      this.maskCtx.save();
+      this.maskCtx.putImageData(imageData, 0, 0);
+      this.maskCtx.restore();
       this.hasMask = true;
       this.emit(EditorEvents.MASK_DATA_CHANGED, { object: this, imageData });
     } catch (error) {

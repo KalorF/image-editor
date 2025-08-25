@@ -43,7 +43,7 @@ export class Editor extends EventEmitter {
   // 核心模块
   public viewport: Viewport;
   public objectManager: ObjectManager;
-  public selectionBox: SelectionBox;
+  public selectionBox: SelectionBox | null = null;
   public hooks: HookManager;
   public plugins: PluginManager;
   public history: HistoryManager | null = null;
@@ -99,7 +99,9 @@ export class Editor extends EventEmitter {
       this.options.zoomOptions || { minZoom: 0.05, maxZoom: 100 },
     );
     this.objectManager = new ObjectManager();
-    this.selectionBox = new SelectionBox({ viewport: this.viewport, canvas: this.canvas });
+    if (options.enableSelection !== false) {
+      this.selectionBox = new SelectionBox({ viewport: this.viewport, canvas: this.canvas });
+    }
 
     // 历史管理（默认启用，可通过配置关闭）
     if (options.enableHistory !== false) {
@@ -207,23 +209,23 @@ export class Editor extends EventEmitter {
     });
 
     // 选择框事件
-    this.selectionBox.on(EditorEvents.SELECTION_CHANGED, (data: any) => {
+    this.selectionBox?.on(EditorEvents.SELECTION_CHANGED, (data: any) => {
       this.selectedObject = data.newTarget;
       this.emit(EditorEvents.SELECTION_CHANGED, data);
       this.requestRender();
     });
 
-    this.selectionBox.on(EditorEvents.DRAG_START, event => {
+    this.selectionBox?.on(EditorEvents.DRAG_START, event => {
       this.emit(EditorEvents.OBJECT_DRAG_START, event);
     });
 
-    this.selectionBox.on(EditorEvents.DRAG_MOVE, event => {
+    this.selectionBox?.on(EditorEvents.DRAG_MOVE, event => {
       this.hooks.trigger(EditorHooks.OBJECT_DRAG_MOVE, event);
       this.emit(EditorEvents.OBJECT_DRAG_MOVE, event || {});
       this.requestRender();
     });
 
-    this.selectionBox.on(EditorEvents.DRAG_END, (event: any) => {
+    this.selectionBox?.on(EditorEvents.DRAG_END, (event: any) => {
       this.hooks.trigger(EditorHooks.OBJECT_DRAG_END, event);
       this.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'After transform');
       this.emit(EditorEvents.OBJECT_DRAG_END, event || {});
@@ -266,7 +268,7 @@ export class Editor extends EventEmitter {
 
     // 选择框处理
     if (this.options.enableSelection !== false && this.currentTool === 'select') {
-      const handled = this.selectionBox.handleMouseDown(worldPoint, event);
+      const handled = this.selectionBox?.handleMouseDown(worldPoint, event);
       if (handled) {
         this.emit(EditorEvents.MOUSE_DOWN, { point: worldPoint, event, handled: true });
         return;
@@ -278,7 +280,7 @@ export class Editor extends EventEmitter {
       const hitObject = this.objectManager.hitTest(worldPoint);
       if (hitObject) {
         this.selectObject(hitObject);
-        this.selectionBox.handleMouseDown(worldPoint, event);
+        this.selectionBox?.handleMouseDown(worldPoint, event);
       } else {
         this.clearSelection();
       }
@@ -310,7 +312,7 @@ export class Editor extends EventEmitter {
 
     // 选择框处理
     if (this.options.enableSelection !== false) {
-      this.selectionBox.handleMouseMove(worldPoint);
+      this.selectionBox?.handleMouseMove(worldPoint);
     }
 
     this.emit(EditorEvents.MOUSE_MOVE, { point: worldPoint, event });
@@ -336,7 +338,7 @@ export class Editor extends EventEmitter {
 
     // 选择框处理
     if (this.options.enableSelection !== false) {
-      this.selectionBox.handleMouseUp();
+      this.selectionBox?.handleMouseUp();
     }
 
     this.emit(EditorEvents.MOUSE_UP, { point: worldPoint, event });
@@ -506,7 +508,7 @@ export class Editor extends EventEmitter {
 
     this.hooks.trigger(EditorHooks.OBJECT_BEFORE_SELECT, object);
     this.selectedObject = object;
-    this.selectionBox.setTarget(object);
+    this.selectionBox?.setTarget(object);
     this.hooks.trigger(EditorHooks.OBJECT_AFTER_SELECT, object);
     this.emit(EditorEvents.OBJECT_SELECTED, { object });
   }
@@ -518,7 +520,7 @@ export class Editor extends EventEmitter {
 
     const oldSelection = this.selectedObject;
     this.selectedObject = null;
-    this.selectionBox.setTarget(null);
+    this.selectionBox?.setTarget(null);
     this.emit(EditorEvents.OBJECT_DESELECTED, { object: oldSelection });
   }
 
@@ -862,7 +864,7 @@ export class Editor extends EventEmitter {
     this.objectManager.renderAll(this.ctx, type);
 
     // 渲染选择框
-    this.selectionBox.render(this.ctx);
+    this.selectionBox?.render(this.ctx);
 
     // 触发渲染后钩子
     this.hooks.trigger(EditorHooks.RENDER_AFTER, this.ctx);
@@ -1035,7 +1037,7 @@ export class Editor extends EventEmitter {
 
     // 清理组件
     this.viewport.destroy();
-    this.selectionBox.destroy();
+    this.selectionBox?.destroy();
     this.objectManager.clear();
 
     // 移除画布

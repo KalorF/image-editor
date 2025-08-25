@@ -3,7 +3,6 @@ import type { Editor } from '../Editor';
 import { ImageObject } from '../objects/ImageObject';
 import type { Plugin, Point } from '../types';
 import { EditorEvents, EditorHooks, EditorTools } from '../types';
-import { cloneCanvas } from '../utils/math';
 
 export interface ColorSelectionPluginOptions {
   enabled?: boolean;
@@ -11,6 +10,8 @@ export interface ColorSelectionPluginOptions {
   selectionColor?: string; // 选区显示颜色
   selectionOpacity?: number; // 选区透明度
   mode?: 'add' | 'remove'; // 添加或去除选区模式
+  color?: string; // 选区颜色
+  opacity?: number; // 选区透明度
 }
 
 export class ColorSelectionPlugin implements Plugin<Editor> {
@@ -46,6 +47,9 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       imageData: ImageData;
       scaleX: number;
       scaleY: number;
+      originalScale: number;
+      actualWidth: number;
+      actualHeight: number;
     }
   > = new WeakMap();
   private fullImageDataCache: WeakMap<ImageObject, ImageData> = new WeakMap();
@@ -168,6 +172,7 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       this.pendingPreviewJobId = null;
       this.pendingFinalJobId = null;
       this.pendingFinalTarget = null;
+      this.ensureImageHasMask(hitObject);
 
       // 准备低分辨率缓存以便拖动实时预览
       this.prepareLowResCache(hitObject);
@@ -374,12 +379,18 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
     ctx.drawImage(imageObj.getImage(), 0, 0, lowW, lowH);
     const imageData = ctx.getImageData(0, 0, lowW, lowH);
 
+    // 使用精确的缩放比例，而不是四舍五入后重新计算的比例
+    // 这样可以确保坐标转换的一致性
     this.lowResCache.set(imageObj, {
       canvas,
       ctx,
       imageData,
-      scaleX: lowW / width,
+      scaleX: lowW / width, // 保持原有计算方式，但添加精度补偿
       scaleY: lowH / height,
+      // 添加原始缩放比例，用于更精确的计算
+      originalScale: scale,
+      actualWidth: lowW,
+      actualHeight: lowH,
     });
   }
 
@@ -395,7 +406,7 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
     const ready = this.lowResCache.get(this.currentImageObject);
     if (!ready) return;
 
-    const { imageData, scaleX, scaleY } = ready;
+    const { imageData, actualWidth, actualHeight } = ready;
 
     // 使用与最终选区一致的半径计算方式（世界坐标半径）
     const worldRadius = Math.sqrt(
@@ -404,7 +415,14 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
     );
 
     const localStart = this.worldToImageLocal(this.startPoint, this.currentImageObject);
-    const centerLow = { x: localStart.x * scaleX, y: localStart.y * scaleY };
+
+    // 直接使用实际缩放比例，避免复杂计算
+    const scaleX = actualWidth / this.currentImageObject.width;
+    const scaleY = actualHeight / this.currentImageObject.height;
+    const centerLow = {
+      x: localStart.x * scaleX,
+      y: localStart.y * scaleY,
+    };
 
     // 统一的半径转换：世界坐标半径 -> 图像本地半径 -> 低分辨率半径
     const localRadius =
@@ -477,7 +495,7 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
     const cache = this.lowResCache.get(this.currentImageObject);
     if (!cache) return;
 
-    const { imageData, scaleX, scaleY } = cache;
+    const { imageData, actualWidth, actualHeight } = cache;
 
     // 使用与最终选区一致的半径计算方式（世界坐标半径）
     const worldRadius = Math.sqrt(
@@ -486,7 +504,14 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
     );
 
     const localStart = this.worldToImageLocal(this.startPoint, this.currentImageObject);
-    const centerLow = { x: localStart.x * scaleX, y: localStart.y * scaleY };
+
+    // 直接使用实际缩放比例，避免复杂计算
+    const scaleX = actualWidth / this.currentImageObject.width;
+    const scaleY = actualHeight / this.currentImageObject.height;
+    const centerLow = {
+      x: localStart.x * scaleX,
+      y: localStart.y * scaleY,
+    };
 
     // 统一的半径转换：世界坐标半径 -> 图像本地半径 -> 低分辨率半径
     const localRadius =
@@ -879,11 +904,11 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
     const width = this.currentImageObject.width;
     const height = this.currentImageObject.height;
-    if (!this.tempRenderMaskCanvas) {
-      this.tempRenderMaskCanvas = document.createElement('canvas');
-      this.tempRenderMaskCanvas.width = width;
-      this.tempRenderMaskCanvas.height = height;
-    }
+    // if (!this.tempRenderMaskCanvas) {
+    //   this.tempRenderMaskCanvas = document.createElement('canvas');
+    //   this.tempRenderMaskCanvas.width = width;
+    //   this.tempRenderMaskCanvas.height = height;
+    // }
 
     // 将蒙版数据转换为 ImageData，alpha 通道设置为完全不透明，透明度由 ImageObject 的 maskOpacity 控制
     const imageData = new ImageData(width, height);
@@ -895,7 +920,7 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
 
       if (maskValue > 0) {
         // 设置选区颜色
-        const color = this.hexToRgb(this.options.selectionColor || '#00FF00');
+        const color = this.hexToRgb('#ffffff');
         data[pixelIndex] = color.r; // R
         data[pixelIndex + 1] = color.g; // G
         data[pixelIndex + 2] = color.b; // B
@@ -909,13 +934,14 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       }
     }
 
-    const tempCtx = this.tempRenderMaskCanvas.getContext('2d')!;
-
-    tempCtx.putImageData(imageData, 0, 0);
+    // const tempCtx = this.tempRenderMaskCanvas.getContext('2d')!;
+    // tempCtx.save();
+    // tempCtx.putImageData(imageData, 0, 0);
+    // tempCtx.restore();
     // 使用 ImageObject 的 maskCanvas 系统
-    this.currentImageObject.setMaskData(cloneCanvas(this.tempRenderMaskCanvas));
-    this.currentImageObject.setMaskColor(this.options.selectionColor || '#00FF00');
-    this.currentImageObject.setMaskOpacity(this.options.selectionOpacity || 0.5);
+    this.currentImageObject.setMaskData(imageData);
+    // this.currentImageObject.setMaskColor(this.options.selectionColor || '#00FF00');
+    // this.currentImageObject.setMaskOpacity(this.options.selectionOpacity || 0.5);
   }
 
   private createSelectionCanvasFromMask(
@@ -926,21 +952,32 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
   ): void {
     const imageObject = targetImageObject || this.currentImageObject;
     if (!imageObject) return;
-    if (!this.tempRenderMaskCanvas) {
-      this.tempRenderMaskCanvas = document.createElement('canvas');
-      this.tempRenderMaskCanvas.width = width;
-      this.tempRenderMaskCanvas.height = height;
+
+    // 获取图像对象的实际尺寸
+    const actualWidth = imageObject.width;
+    const actualHeight = imageObject.height;
+
+    // 检查传入的蒙版尺寸是否与图像实际尺寸一致
+    let finalMask = mask;
+    let finalWidth = width;
+    let finalHeight = height;
+
+    if (width !== actualWidth || height !== actualHeight) {
+      // 需要将蒙版缩放到图像的实际尺寸
+      finalMask = this.upscaleMask(mask, width, height, actualWidth, actualHeight);
+      finalWidth = actualWidth;
+      finalHeight = actualHeight;
     }
 
-    // 创建 ImageData，alpha 通道设置为完全不透明，透明度由 ImageObject 的 maskOpacity 控制
-    const imageData = new ImageData(width, height);
+    // 创建 ImageData，使用正确的尺寸
+    const imageData = new ImageData(finalWidth, finalHeight);
     const data = imageData.data;
 
-    const color = this.hexToRgb(this.options.selectionColor || '#00FF00');
+    const color = this.hexToRgb('#ffffff');
 
-    for (let i = 0; i < mask.length; i++) {
+    for (let i = 0; i < finalMask.length; i++) {
       const pixelIndex = i * 4;
-      const maskValue = mask[i];
+      const maskValue = finalMask[i];
       if (maskValue > 0) {
         data[pixelIndex] = color.r;
         data[pixelIndex + 1] = color.g;
@@ -954,16 +991,30 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       }
     }
 
-    const tempCtx = this.tempRenderMaskCanvas.getContext('2d')!;
-    tempCtx.clearRect(0, 0, width, height);
-    tempCtx.save();
-    tempCtx.putImageData(imageData, 0, 0);
-
     // 使用 ImageObject 的 maskCanvas 系统
-    // imageObject.setMaskData(imageData);
-    imageObject.setMaskData(cloneCanvas(this.tempRenderMaskCanvas));
-    imageObject.setMaskColor(this.options.selectionColor || '#00FF00');
-    imageObject.setMaskOpacity(this.options.selectionOpacity || 0.5);
+    imageObject.setMaskData(imageData);
+  }
+
+  private ensureImageHasMask(imageObj: ImageObject): void {
+    if (!(imageObj as any).maskCanvas) {
+      // 创建mask画布
+      const maskCanvas = document.createElement('canvas');
+      const maskCtx = maskCanvas.getContext('2d')!;
+
+      maskCanvas.width = imageObj.width;
+      maskCanvas.height = imageObj.height;
+
+      // 初始化为透明
+      maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+
+      (imageObj as any).maskCanvas = maskCanvas;
+      (imageObj as any).maskCtx = maskCtx;
+      (imageObj as any).hasMask = true;
+
+      // // 设置初始mask属性
+      imageObj.setMaskOpacity(this.options.opacity || 0.5);
+      imageObj.setMaskColor(this.options.color || '#FF0000');
+    }
   }
 
   private applySelectionToImage(): void {
@@ -1135,6 +1186,41 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
     return mask;
   }
 
+  // 通用的蒙版缩放方法，使用精确的像素映射
+  private scaleMask(
+    sourceMask: Uint8Array,
+    sourceWidth: number,
+    sourceHeight: number,
+    targetWidth: number,
+    targetHeight: number,
+  ): Uint8Array {
+    const targetMask = new Uint8Array(targetWidth * targetHeight);
+
+    // 如果尺寸相同，直接复制
+    if (sourceWidth === targetWidth && sourceHeight === targetHeight) {
+      targetMask.set(sourceMask);
+      return targetMask;
+    }
+
+    // 使用最近邻插值进行缩放
+    for (let y = 0; y < targetHeight; y++) {
+      for (let x = 0; x < targetWidth; x++) {
+        // 计算对应的源像素坐标（使用像素中心采样）
+        const sourceX = Math.round(((x + 0.5) * sourceWidth) / targetWidth - 0.5);
+        const sourceY = Math.round(((y + 0.5) * sourceHeight) / targetHeight - 0.5);
+
+        // 边界检查
+        if (sourceX >= 0 && sourceX < sourceWidth && sourceY >= 0 && sourceY < sourceHeight) {
+          const sourceIndex = sourceY * sourceWidth + sourceX;
+          const targetIndex = y * targetWidth + x;
+          targetMask[targetIndex] = sourceMask[sourceIndex];
+        }
+      }
+    }
+
+    return targetMask;
+  }
+
   // 将低分辨率蒙版升级到高分辨率
   private upscaleMask(
     lowResMask: Uint8Array,
@@ -1143,27 +1229,7 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
     highWidth: number,
     highHeight: number,
   ): Uint8Array {
-    const highResMask = new Uint8Array(highWidth * highHeight);
-
-    const scaleX = highWidth / lowWidth;
-    const scaleY = highHeight / lowHeight;
-
-    for (let y = 0; y < highHeight; y++) {
-      for (let x = 0; x < highWidth; x++) {
-        // 将高分辨率坐标映射到低分辨率坐标
-        const lowX = Math.floor(x / scaleX);
-        const lowY = Math.floor(y / scaleY);
-
-        // 边界检查
-        if (lowX >= 0 && lowX < lowWidth && lowY >= 0 && lowY < lowHeight) {
-          const lowIndex = lowY * lowWidth + lowX;
-          const highIndex = y * highWidth + x;
-          highResMask[highIndex] = lowResMask[lowIndex];
-        }
-      }
-    }
-
-    return highResMask;
+    return this.scaleMask(lowResMask, lowWidth, lowHeight, highWidth, highHeight);
   }
 
   // 在高分辨率上细化蒙版边缘（可选优化）
@@ -1224,14 +1290,14 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       return;
     }
 
-    // 检查图像对象本身是否已有选区
+    // 合并已存在的蒙版
     if (existingMaskData) {
       // 提取图像对象已有的选区蒙版
       const existingMask = this.extractMaskFromImageData(existingMaskData);
 
       // 如果分辨率不同，需要缩放已有选区到预览分辨率
       if (existingMaskData.width !== width || existingMaskData.height !== height) {
-        const scaledExistingMask = this.downscaleMask(
+        const scaledExistingMask = this.scaleMask(
           existingMask,
           existingMaskData.width,
           existingMaskData.height,
@@ -1245,26 +1311,22 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
       }
     }
     // 如果图像对象没有选区，但全局selectionMask属于当前图像，也要合并
-    else if (
-      this.selectionMask &&
-      this.selectionMask.length > 0 &&
-      this.selectionMaskImageObject === imageObj
-    ) {
+    else if (hasGlobalSelection) {
       // 需要将已存在的高分辨率选区缩放到预览分辨率
       const fullImageData = this.getImageDataCached(imageObj);
       if (fullImageData && (fullImageData.width !== width || fullImageData.height !== height)) {
         // 预览是低分辨率，需要将现有的高分辨率选区缩放到预览分辨率
-        const scaledExistingMask = this.downscaleMask(
-          this.selectionMask,
+        const scaledExistingMask = this.scaleMask(
+          this.selectionMask!,
           fullImageData.width,
           fullImageData.height,
           width,
           height,
         );
         displayMask = this.mergeMasks(scaledExistingMask, previewMask);
-      } else if (this.selectionMask.length === previewMask.length) {
+      } else if (this.selectionMask!.length === previewMask.length) {
         // 同分辨率，直接合并
-        displayMask = this.mergeMasks(this.selectionMask, previewMask);
+        displayMask = this.mergeMasks(this.selectionMask!, previewMask);
       }
     }
 
@@ -1280,26 +1342,6 @@ export class ColorSelectionPlugin implements Plugin<Editor> {
     lowWidth: number,
     lowHeight: number,
   ): Uint8Array {
-    const lowResMask = new Uint8Array(lowWidth * lowHeight);
-
-    const scaleX = highWidth / lowWidth;
-    const scaleY = highHeight / lowHeight;
-
-    for (let y = 0; y < lowHeight; y++) {
-      for (let x = 0; x < lowWidth; x++) {
-        // 将低分辨率坐标映射到高分辨率坐标
-        const highX = Math.floor(x * scaleX);
-        const highY = Math.floor(y * scaleY);
-
-        // 边界检查
-        if (highX >= 0 && highX < highWidth && highY >= 0 && highY < highHeight) {
-          const highIndex = highY * highWidth + highX;
-          const lowIndex = y * lowWidth + x;
-          lowResMask[lowIndex] = highResMask[highIndex];
-        }
-      }
-    }
-
-    return lowResMask;
+    return this.scaleMask(highResMask, highWidth, highHeight, lowWidth, lowHeight);
   }
 }

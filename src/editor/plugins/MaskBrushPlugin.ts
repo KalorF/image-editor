@@ -30,6 +30,7 @@ export class MaskBrushPlugin implements Plugin<Editor> {
   // 鼠标样式相关
   private brushCursor: HTMLElement | null = null;
   private isMouseOverCanvas: boolean = false;
+  private brushColor: any = null;
 
   constructor(options: MaskBrushPluginOptions = {}) {
     this.options = {
@@ -113,6 +114,7 @@ export class MaskBrushPlugin implements Plugin<Editor> {
 
       // 确保图像对象有mask
       this.ensureImageHasMask(hitObject);
+      this.brushColor = this.genDrawBruchStyle(hitObject, worldToImageLocal(worldPoint, hitObject));
 
       // 开始绘制
       this.drawMask(worldPoint, hitObject);
@@ -245,6 +247,28 @@ export class MaskBrushPlugin implements Plugin<Editor> {
     }
   }
 
+  private genDrawBruchStyle(imageObj: ImageObject, point: Point) {
+    const maskCtx = (imageObj as any).maskCtx as CanvasRenderingContext2D;
+    const baseBrushSize = this.options?.brushSize || 20;
+    const bashHardness = this.options?.bashHardness || 1;
+    const viewportZoom = this.editor.viewport.zoom;
+    const imageScale = Math.min(imageObj.transform.scaleX, imageObj.transform.scaleY);
+
+    // 笔刷大小 = 基础大小 / (视口缩放 * 图像缩放)
+    // 这样可以确保无论视口如何缩放，笔刷的实际大小都保持一致
+    const adjustedBrushSize = baseBrushSize / (viewportZoom * imageScale);
+    // 设置渐变画笔
+    const gradientColor = createGradient({
+      ctx: maskCtx,
+      x: point.x,
+      y: point.y,
+      size: adjustedBrushSize / 2,
+      hardness: bashHardness / 100,
+      color: 'rgba(255, 255, 255, 255)',
+    });
+    return gradientColor;
+  }
+
   private drawMask(point: Point, imageObj: ImageObject): void {
     const localPoint = worldToImageLocal(point, imageObj);
 
@@ -264,7 +288,19 @@ export class MaskBrushPlugin implements Plugin<Editor> {
       Math.pow(localTo.x - localFrom.x, 2) + Math.pow(localTo.y - localFrom.y, 2),
     );
 
-    const steps = Math.max(1, Math.ceil(distance));
+    // 性能优化: 根据笔刷大小计算合适的步长
+    const baseBrushSize = this.options?.brushSize || 20;
+    const viewportZoom = this.editor.viewport.zoom;
+    const imageScale = Math.min(imageObj.transform.scaleX, imageObj.transform.scaleY);
+    const adjustedBrushSize = baseBrushSize / (viewportZoom * imageScale);
+
+    // 步长计算策略：
+    // 1. 基础步长为笔刷半径的 0.3-0.5 倍，确保连续性
+    // 2. 最小步长为 0.5 像素，避免过度细分
+    // 3. 最大步长不超过笔刷半径，保证覆盖效果
+    const brushRadius = adjustedBrushSize / 2;
+    const baseStepSize = Math.max(0.5, brushRadius * 0.4); // 笔刷半径的 40%
+    const steps = Math.max(1, Math.ceil(distance / baseStepSize));
 
     for (let i = 0; i <= steps; i++) {
       const t = steps === 0 ? 0 : i / steps;
@@ -291,7 +327,7 @@ export class MaskBrushPlugin implements Plugin<Editor> {
 
     // 计算考虑视口缩放和图像缩放的笔刷大小
     const baseBrushSize = this.options?.brushSize || 20;
-    const bashHardness = this.options?.bashHardness || 1;
+    // const bashHardness = this.options?.bashHardness || 1;
     const viewportZoom = this.editor.viewport.zoom;
     const imageScale = Math.min(imageObj.transform.scaleX, imageObj.transform.scaleY);
 
@@ -299,14 +335,8 @@ export class MaskBrushPlugin implements Plugin<Editor> {
     // 这样可以确保无论视口如何缩放，笔刷的实际大小都保持一致
     const adjustedBrushSize = baseBrushSize / (viewportZoom * imageScale);
     // 设置渐变画笔
-    const gradientColor = createGradient({
-      ctx: maskCtx,
-      x: localPoint.x,
-      y: localPoint.y,
-      size: adjustedBrushSize / 2,
-      hardness: bashHardness / 100,
-      color: 'rgba(255, 255, 255, 255)',
-    });
+    const gradientColor = this.genDrawBruchStyle(imageObj, localPoint);
+    // maskCtx.fillStyle = '#21d1d1';
     maskCtx.fillStyle = gradientColor;
 
     // 绘制圆形笔刷
