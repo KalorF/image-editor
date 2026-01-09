@@ -157,6 +157,7 @@ export class ImageObject extends BaseObject {
   private tempApplyMaskCanvas?: HTMLCanvasElement | null = null;
   private tempHoverMaskCanvas?: HTMLCanvasElement | null = null;
   private tempRenderMaskCanvas?: HTMLCanvasElement | null = null;
+  private isPreviewMask?: boolean = false;
 
   constructor(src: string, options: Partial<ImageObject> & ImageObjectOptions = {}) {
     super('image', options);
@@ -263,6 +264,41 @@ export class ImageObject extends BaseObject {
       const x = -this.width / 2;
       const y = -this.height / 2;
 
+      if (this.isPreviewMask) {
+        if (!this.tempApplyMaskCanvas) {
+          this.tempApplyMaskCanvas = document.createElement('canvas');
+          this.tempApplyMaskCanvas.width = this.image.width;
+          this.tempApplyMaskCanvas.height = this.image.height;
+        }
+        const tempCanvas = this.tempApplyMaskCanvas;
+        const tempCtx = tempCanvas.getContext('2d')!;
+        tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+        tempCtx.save();
+        tempCtx.drawImage(this.image, 0, 0, this.image.width, this.image.height);
+        tempCtx.globalCompositeOperation = 'destination-in';
+        if (!this.maskCanvas || !this.maskCtx) {
+          // 创建mask画布
+          this.maskCanvas = document.createElement('canvas');
+          this.maskCanvas.width = this.image.width;
+          this.maskCanvas.height = this.image.height;
+          this.maskCtx = this.maskCanvas.getContext('2d', { willReadFrequently: true })!;
+          this.hasMask = true;
+        }
+        if (this.maskCanvas) {
+          tempCtx.drawImage(
+            this.maskCanvas as HTMLCanvasElement,
+            0,
+            0,
+            this.image.width,
+            this.image.height,
+          );
+        }
+        tempCtx.restore();
+        ctx.drawImage(tempCanvas, x, y, this.width, this.height);
+        this.restoreTransform(ctx);
+        return;
+      }
+
       // 应用滤镜
       if (this.filters.length > 0) {
         ctx.filter = this.filters.join(' ');
@@ -350,6 +386,10 @@ export class ImageObject extends BaseObject {
     ctx.drawImage(selectionCanvas, x, y, this.width, this.height);
 
     ctx.restore();
+  }
+
+  public setPreviewMask(isPreviewMask: boolean): void {
+    this.isPreviewMask = isPreviewMask;
   }
 
   // 设置mask属性
@@ -481,7 +521,7 @@ export class ImageObject extends BaseObject {
   public clearMask(): void {
     if (this.maskCanvas && this.maskCtx) {
       this.maskCtx.clearRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
-      this.hasMask = false;
+      // this.hasMask = false;
       this.emit(EditorEvents.MASK_CLEARED, { object: this });
     }
   }
@@ -704,6 +744,16 @@ export class ImageObject extends BaseObject {
     }
 
     return imageObj;
+  }
+
+  clearApplyMaskCanvas(): void {
+    if (this.applyMaskCanvas) {
+      const ctx = this.applyMaskCanvas.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, this.applyMaskCanvas.width, this.applyMaskCanvas.height);
+        this.hasApplyMask = false;
+      }
+    }
   }
 
   // 获取缓存管理器实例（供外部使用）

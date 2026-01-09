@@ -209,6 +209,9 @@ export function createGradient({
   color?: string;
 }) {
   hardness = Math.min(1, Math.max(0, hardness));
+  if (hardness >= 0.999) {
+    return color;
+  }
   ctx.imageSmoothingEnabled = true;
   const gradient = ctx.createRadialGradient(x, y, 0, x, y, size);
   gradient.addColorStop(0, color);
@@ -392,4 +395,15 @@ export function isCanvasAllWhiteOptimized(canvas: HTMLCanvasElement): boolean {
   }
 
   return true;
+}
+
+export function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result
+    ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16),
+      }
+    : { r: 0, g: 255, b: 0 };
 }

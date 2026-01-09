@@ -342,7 +342,7 @@ export class ObjectManager extends EventEmitter {
   }
 
   // 渲染所有对象
-  renderAll(ctx: CanvasRenderingContext2D, type: EditorRenderType): void {
+  renderAll(ctx: CanvasRenderingContext2D, type: EditorRenderType, viewportBounds?: Bounds): void {
     // 按图层顺序渲染
     for (const layer of this.layers) {
       if (!layer.visible) {
@@ -355,6 +355,15 @@ export class ObjectManager extends EventEmitter {
         .sort((a, b) => ((a as any).zIndex || 0) - ((b as any).zIndex || 0));
 
       for (const object of sortedObjects) {
+        // 视口裁剪：如果提供了可视区域边界，只渲染与可视区域相交的对象
+        if (viewportBounds) {
+          const objBounds = object.getBounds();
+          if (!this.boundsIntersect(viewportBounds, objBounds)) {
+            // console.log('跳过不在可视区域内的对象', object.id);
+            continue; // 跳过不在可视区域内的对象
+          }
+        }
+
         try {
           object.render(ctx, type);
         } catch (error) {

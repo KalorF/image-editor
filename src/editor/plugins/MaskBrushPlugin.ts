@@ -20,7 +20,7 @@ export class MaskBrushPlugin implements Plugin<Editor> {
   version = '1.0.0';
 
   private editor!: Editor;
-  private options: MaskBrushPluginOptions;
+  options: MaskBrushPluginOptions;
 
   // 绘制状态
   private isDrawing: boolean = false;
@@ -31,6 +31,7 @@ export class MaskBrushPlugin implements Plugin<Editor> {
   private brushCursor: HTMLElement | null = null;
   private isMouseOverCanvas: boolean = false;
   private brushColor: any = null;
+  private cursorId: string = '_mask-brush-cursor';
 
   constructor(options: MaskBrushPluginOptions = {}) {
     this.options = {
@@ -87,14 +88,14 @@ export class MaskBrushPlugin implements Plugin<Editor> {
 
   private onToolChanged = () => {
     if (this.editor.getTool() === EditorTools.MASK_BRUSH) {
-      this.showBrushCursor();
+      // this.showBrushCursor();
     } else {
       this.hideBrushCursor();
     }
   };
 
   private onMouseDown = (worldPoint: Point, event: MouseEvent) => {
-    if (this.editor.isPanning) return;
+    if (this.editor.isPanning || this.editor.disableAllTools) return;
 
     if (!this.options.enabled || this.editor.getTool() !== EditorTools.MASK_BRUSH) {
       return; // 未处理事件，继续默认行为
@@ -129,8 +130,9 @@ export class MaskBrushPlugin implements Plugin<Editor> {
   };
 
   private onMouseMove = (worldPoint: Point, event: MouseEvent) => {
+    if (this.editor.getCurrentTool() !== EditorTools.MASK_BRUSH) return;
     // 更新笔刷光标位置
-    if (this.editor.isPanning) return;
+    if (this.editor.isPanning || this.editor.disableAllTools) return;
     if (this.options.enabled && this.editor.getTool() === EditorTools.MASK_BRUSH) {
       this.updateBrushCursor(event);
     }
@@ -150,29 +152,8 @@ export class MaskBrushPlugin implements Plugin<Editor> {
     return true; // 已处理事件，阻止默认行为
   };
 
-  private cloneMaskData(canvas: HTMLCanvasElement): ImageData {
-    // 创建新的 ImageData 对象
-    // const clonedData = new ImageData(
-    //   new Uint8ClampedArray(maskData.data),
-    //   maskData.width,
-    //   maskData.height,
-    // );
-
-    // const clonedData = new ImageData(
-    //   new Uint8ClampedArray(maskData.data),
-    //   maskData.width,
-    //   maskData.height,
-    // );
-    const dom = new OffscreenCanvas(canvas.width, canvas.height);
-    const ctx = dom.getContext('2d')!;
-    ctx.drawImage(canvas, 0, 0);
-    const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-    return data;
-  }
-
   private onMouseUp = async (_worldPoint: Point, _event: MouseEvent) => {
-    if (this.editor.isPanning) return;
+    if (this.editor.isPanning || this.editor.disableAllTools) return;
     if (this.isDrawing) {
       this.isDrawing = false;
 
@@ -180,31 +161,17 @@ export class MaskBrushPlugin implements Plugin<Editor> {
       this.currentImageObject = null;
       this.updateBrushCursor(_event);
       this.editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Mask brushed', true);
-      // await new Promise<void>(resolve => {
-      //   this.editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Mask brushed', true);
-      //   const onHistoryCaptured = () => {
-      //     this.editor.off(EditorEvents.HISTORY_STATE_CAPTURED, onHistoryCaptured);
-      //     resolve();
-      //   };
-      //   this.editor.on(EditorEvents.HISTORY_STATE_CAPTURED, onHistoryCaptured);
-      // });
-      // this.editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Mask brushed', true, () => {
-      //   const maskData = this.currentImageObject?.getMaskData() as HTMLCanvasElement;
-      //   this.editor.emit(EditorEvents.MASK_CHANGED, {
-      //     mode: this.options.mode,
-      //     brushSize: this.options.brushSize,
-      //     canvasData: this.cloneMaskData(maskData),
-      //   });
-      //   this.currentImageObject = null;
-      // });
       return true; // 已处理事件，阻止默认行为
     }
-    // 未处理事件，继续默认行为
   };
 
   private onMouseEnter = (_worldPoint: Point, event: MouseEvent) => {
     if (this.options.enabled && this.editor.getTool() === EditorTools.MASK_BRUSH) {
       this.isMouseOverCanvas = true;
+      if (this.editor.getSpacePressed()) {
+        this.editor.updateCanvasCursor('grab', undefined, false);
+        return;
+      }
       // 确保光标已创建并显示
       if (!this.brushCursor) {
         this.createBrushCursor();
@@ -276,7 +243,7 @@ export class MaskBrushPlugin implements Plugin<Editor> {
       return;
     }
 
-    this.drawMaskAtPoint(localPoint, imageObj);
+    this.drawMaskAtPoints([localPoint], imageObj);
   }
 
   private drawMaskLine(fromPoint: Point, toPoint: Point, imageObj: ImageObject): void {
@@ -302,6 +269,7 @@ export class MaskBrushPlugin implements Plugin<Editor> {
     const baseStepSize = Math.max(0.5, brushRadius * 0.4); // 笔刷半径的 40%
     const steps = Math.max(1, Math.ceil(distance / baseStepSize));
 
+    const points: Point[] = [];
     for (let i = 0; i <= steps; i++) {
       const t = steps === 0 ? 0 : i / steps;
       const interpolatedPoint = {
@@ -310,12 +278,14 @@ export class MaskBrushPlugin implements Plugin<Editor> {
       };
 
       if (this.isPointInImage(interpolatedPoint, imageObj)) {
-        this.drawMaskAtPoint(interpolatedPoint, imageObj);
+        points.push(interpolatedPoint);
+        // this.drawMaskAtPoint(interpolatedPoint, imageObj);
       }
     }
+    this.drawMaskAtPoints(points, imageObj);
   }
 
-  private drawMaskAtPoint(localPoint: Point, imageObj: ImageObject): void {
+  private drawMaskAtPoints(localPoints: Point[], imageObj: ImageObject): void {
     const maskCtx = (imageObj as any).maskCtx as CanvasRenderingContext2D;
     if (!maskCtx) return;
 
@@ -335,14 +305,15 @@ export class MaskBrushPlugin implements Plugin<Editor> {
     // 这样可以确保无论视口如何缩放，笔刷的实际大小都保持一致
     const adjustedBrushSize = baseBrushSize / (viewportZoom * imageScale);
     // 设置渐变画笔
-    const gradientColor = this.genDrawBruchStyle(imageObj, localPoint);
-    // maskCtx.fillStyle = '#21d1d1';
-    maskCtx.fillStyle = gradientColor;
+    for (const localPoint of localPoints) {
+      const gradientColor = this.genDrawBruchStyle(imageObj, localPoint);
+      maskCtx.fillStyle = gradientColor;
 
-    // 绘制圆形笔刷
-    maskCtx.beginPath();
-    maskCtx.arc(localPoint.x, localPoint.y, adjustedBrushSize / 2, 0, Math.PI * 2);
-    maskCtx.fill();
+      // 绘制圆形笔刷
+      maskCtx.beginPath();
+      maskCtx.arc(localPoint.x, localPoint.y, adjustedBrushSize / 2, 0, Math.PI * 2);
+      maskCtx.fill();
+    }
 
     maskCtx.restore();
 
@@ -379,7 +350,14 @@ export class MaskBrushPlugin implements Plugin<Editor> {
       return;
     }
 
+    if (document.getElementById(this.cursorId)) {
+      this.brushCursor = document.getElementById(this.cursorId) as HTMLElement;
+      this.updateBrushCursorSize();
+      return;
+    }
     this.brushCursor = document.createElement('div');
+    this.brushCursor.id = this.cursorId;
+
     this.brushCursor.style.cssText = `
       position: fixed;
       pointer-events: none;
@@ -387,8 +365,10 @@ export class MaskBrushPlugin implements Plugin<Editor> {
       justify-content: center;
       align-items: center;
       border: 1px solid #ffffff;
+      outline: 1px solid #000000;
       border-radius: 50%;
-      transform: translate(-50%, -50%);
+      left: 0px;
+      top: 0px;
       background: transparent;
       opacity: 0.8;
       display: none;
@@ -436,15 +416,19 @@ export class MaskBrushPlugin implements Plugin<Editor> {
     const size = this.options.brushSize || 20;
     this.brushCursor.style.width = `${size}px`;
     this.brushCursor.style.height = `${size}px`;
+    this.brushCursor.style.left = `${-size / 2}px`;
+    this.brushCursor.style.top = `${-size / 2}px`;
     this.brushCursor.style.borderColor = '#ffffff';
     this.createCursorInner();
   }
 
   private updateBrushCursor(event: MouseEvent): void {
+    if (this.editor.getSpacePressed()) return;
     if (!this.brushCursor || !this.isMouseOverCanvas) return;
 
-    this.brushCursor.style.left = `${event.clientX}px`;
-    this.brushCursor.style.top = `${event.clientY}px`;
+    // this.brushCursor.style.left = `${event.clientX}px`;
+    // this.brushCursor.style.top = `${event.clientY}px`;
+    this.brushCursor.style.transform = `translate3d(${event.clientX}px, ${event.clientY}px, 0)`;
   }
 
   private showBrushCursor(): void {
@@ -454,9 +438,14 @@ export class MaskBrushPlugin implements Plugin<Editor> {
 
     if (this.brushCursor) {
       this.brushCursor.style.display = 'flex';
+      if (this.editor.disableAllTools) {
+        this.brushCursor.style.display = 'none';
+      }
     }
 
-    this.editor.updateCanvasCursor('none', undefined, false);
+    if (!this.editor.disableAllTools) {
+      this.editor.updateCanvasCursor('none', undefined, false);
+    }
   }
 
   private hideBrushCursor(): void {

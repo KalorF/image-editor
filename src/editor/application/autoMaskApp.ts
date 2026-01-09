@@ -1,17 +1,20 @@
 // oxlint-disable-next-line filename-case
-import EventEmitter from 'events';
-import { Editor } from '../Editor';
+import { EditorType, createEditor } from '../index';
 import { ImageObject } from '../objects/ImageObject';
 import {
-  // ColorSelectionPlugin,
+  ColorSelectionPlugin,
   GridPlugin,
   MaskBrushPlugin,
   MaskRegionPlugin,
   OffsetMaskPlugin,
+  OffsetPlugin,
   ResizeZoomPlugin,
+  SubjectExtractionMaskPlugin,
 } from '../plugins';
-import { EditorEvents, EditorRenderType, EditorTool } from '../types';
-import { cloneCanvas, cloneOffscreenCanvas } from '../utils/math';
+import { EditorEvents, EditorHooks, EditorRenderType, EditorTool } from '../types';
+import { cloneCanvas, cloneOffscreenCanvas, convertMaskToTransparent } from '../utils/math';
+import EventEmitter from '../utils/mitt';
+import { hasOverlappingPixels, loadImage } from '../utils/tools';
 
 const gridConfig = {
   size: 6,
@@ -20,9 +23,11 @@ const gridConfig = {
   shadowColor: 'rgba(0, 0, 0, 0.4)',
 };
 
+const PLUGIN_DEFAULT_COLOR = '#00c789';
+const PLUGIN_DEFAULT_OPACITY = 0.4;
 export class AutoMaskApp extends EventEmitter {
-  private originEditor: Editor | undefined;
-  private previewEditor: Editor | undefined;
+  private originEditor: EditorType | undefined;
+  private previewEditor: EditorType | undefined;
   zoomOptions: { minZoom: number; maxZoom: number };
 
   applyMaskHistory: any[] = [];
@@ -36,12 +41,24 @@ export class AutoMaskApp extends EventEmitter {
   private hoverMaskTempCanvas: HTMLCanvasElement | null = null;
   private isApplyInitMask: boolean = false;
   private tempRecordCanvas: HTMLCanvasElement | null = null;
+  private colorSelectionOptions: { pickAddIcon?: string; pickRemoveIcon?: string } = {};
+  private smoothValue: number = 0;
+  private offsetValue: number = 0;
 
-  constructor(zoomOptions?: { minZoom?: number; maxZoom?: number }) {
+  constructor(options?: {
+    minZoom?: number;
+    maxZoom?: number;
+    pickAddIcon?: string;
+    pickRemoveIcon?: string;
+  }) {
     super();
     this.zoomOptions = {
-      minZoom: zoomOptions?.minZoom ?? 0.05,
-      maxZoom: zoomOptions?.maxZoom ?? 100,
+      minZoom: options?.minZoom ?? 0.05,
+      maxZoom: options?.maxZoom ?? 100,
+    };
+    this.colorSelectionOptions = {
+      pickAddIcon: options?.pickAddIcon ?? 'crosshair',
+      pickRemoveIcon: options?.pickRemoveIcon ?? 'crosshair',
     };
     this.applyMaskHistory = [];
     this.applyMaskIndex = -1;
@@ -54,32 +71,42 @@ export class AutoMaskApp extends EventEmitter {
    * @param previewCanvas 预览画布
    */
   mount(originCanvas: HTMLCanvasElement, previewCanvas: HTMLCanvasElement) {
-    this.originEditor = new Editor({
+    // 原图区域
+    this.originEditor = createEditor({
       container: originCanvas,
       enableHistory: true,
       enableSelection: false,
       plugins: [
         new GridPlugin(gridConfig),
         new MaskBrushPlugin({
-          color: '#21d1d1',
-          opacity: 0.4,
+          color: PLUGIN_DEFAULT_COLOR,
+          opacity: PLUGIN_DEFAULT_OPACITY,
         }),
         new ResizeZoomPlugin(),
         new MaskRegionPlugin({
-          hoverColor: '#21d1d1',
-          hoverOpacity: 0.4,
-          appliedColor: '#21d1d1',
-          appliedOpacity: 0.4,
+          hoverColor: PLUGIN_DEFAULT_COLOR,
+          hoverOpacity: PLUGIN_DEFAULT_OPACITY,
+          appliedColor: PLUGIN_DEFAULT_COLOR,
+          appliedOpacity: PLUGIN_DEFAULT_OPACITY,
         }),
         new OffsetMaskPlugin(),
-        // new ColorSelectionPlugin({
-        //   color: '#21d1d1',
-        //   opacity: 0.4,
-        // }),
+        new ColorSelectionPlugin({
+          color: PLUGIN_DEFAULT_COLOR,
+          opacity: PLUGIN_DEFAULT_OPACITY,
+          pickAddIcon: this.colorSelectionOptions.pickAddIcon,
+          pickRemoveIcon: this.colorSelectionOptions.pickRemoveIcon,
+        }),
+        new SubjectExtractionMaskPlugin({
+          color: PLUGIN_DEFAULT_COLOR,
+          opacity: PLUGIN_DEFAULT_OPACITY,
+        }),
+        new OffsetPlugin(),
       ],
       zoomOptions: this.zoomOptions,
     });
-    this.previewEditor = new Editor({
+
+    // 预览区域
+    this.previewEditor = createEditor({
       container: previewCanvas,
       enableHistory: false,
       enableSelection: false,
@@ -94,20 +121,24 @@ export class AutoMaskApp extends EventEmitter {
    * 绑定事件
    */
   private bindEvents() {
+    // 监听原图区域缩放
     this.originEditor?.on(EditorEvents.VIEWPORT_ZOOM, ({ zoom }) => {
       this.emit('zoomChange', { zoom });
       this.forceSyncViewports('preview');
     });
 
+    // 监听预览区域缩放
     this.previewEditor?.on(EditorEvents.VIEWPORT_ZOOM, ({ zoom }) => {
       this.emit('zoomChange', { zoom });
       this.forceSyncViewports('origin');
     });
 
+    // 监听原图区域平移
     this.originEditor?.on(EditorEvents.VIEWPORT_PAN, () => {
       this.forceSyncViewports('preview');
     });
 
+    // 监听预览区域平移
     this.previewEditor?.on(EditorEvents.VIEWPORT_PAN, () => {
       this.forceSyncViewports('origin');
     });
@@ -121,15 +152,26 @@ export class AutoMaskApp extends EventEmitter {
         });
         if (description === 'Mask brushed' || description!.indexOf('mask region') > -1) {
           this.isApplyInitMask = false;
-          this.getOffsetMaskPlugin()?.setPreMaskCanvasMap();
+          this.setOffset(0);
+          this.getOffsetPlugin()?.setPreMaskCanvasMap();
         }
         if (description === 'Offset mask') {
           this.applyOffsetMask();
+        }
+
+        if (description === 'extraction mask applied') {
+          this.applyOffsetMask();
+        }
+
+        if (description && description.indexOf('Color selection') > -1) {
+          this.setOffsetMask(0);
+          this.getOffsetPlugin()?.setPreMaskCanvasMap();
         }
         this.emit('historyChange', { canUndo, canRedo });
       },
     );
 
+    // 监听历史栈撤销
     this.originEditor?.on(EditorEvents.HISTORY_UNDO, ({ canUndo, canRedo }) => {
       this.emit('historyChange', { canUndo, canRedo });
       --this.applyMaskIndex;
@@ -139,48 +181,40 @@ export class AutoMaskApp extends EventEmitter {
         this.isApplyInitMask = true;
         this.applyMask(canvas);
       } else {
-        // const c = document.createElement('canvas');
-        // c.width = canvas.width;
-        // c.height = canvas.height;
-        // c.getContext('2d')?.putImageData(canvas as ImageData, 0, 0);
         this.isApplyInitMask = false;
         this.applyMask(canvas);
       }
+      this.setOffsetMask(0);
+      this.getOffsetPlugin()?.setPreMaskCanvasMap();
     });
 
+    // 监听历史栈重做
     this.originEditor?.on(EditorEvents.HISTORY_REDO, ({ canUndo, canRedo }) => {
       this.emit('historyChange', { canUndo, canRedo });
       ++this.applyMaskIndex;
       const canvas = this.applyMaskHistory[this.applyMaskIndex];
       if (canvas && canvas.width && canvas.height) {
-        // const c = document.createElement('canvas');
-        // c.width = canvas.width;
-        // c.height = canvas.height;
-        // c.getContext('2d')?.putImageData(canvas as ImageData, 0, 0);
         this.isApplyInitMask = false;
         this.applyMask(canvas);
       }
+      this.setOffsetMask(0);
+      this.getOffsetPlugin()?.setPreMaskCanvasMap();
     });
 
-    // this.originEditor?.on(EditorEvents.MASK_CHANGED, ({ canvasData }) => {
-    //   if (this.applyMaskIndex < this.applyMaskHistory.length - 1) {
-    //     this.applyMaskHistory = this.applyMaskHistory.slice(0, this.applyMaskIndex + 1);
-    //   }
-    //   this.applyMaskHistory.push(canvasData as ImageData);
-    //   this.applyMaskIndex = this.applyMaskHistory.length - 1;
-    //   if (!this.initApplyMaskHistory && canvasData) {
-    //     const c = document.createElement('canvas');
-    //     c.width = canvasData?.width ?? 0;
-    //     c.height = canvasData?.height ?? 0;
-    //     this.initApplyMaskHistory = c;
-    //   }
-    // });
-
+    // 监听蒙版绘制
     this.originEditor?.on(EditorEvents.MASK_BRUSH_DRAW, ({ canvas }) => {
       this.applyMask(canvas);
     });
 
-    this.originEditor?.on(EditorEvents.MASK_REGION_APPLIED, ({ canvas }) => {
+    // 监听蒙版区域应用
+    this.originEditor?.on(EditorEvents.MASK_REGION_APPLIED, ({ canvas, needHistory }) => {
+      if (!needHistory && canvas) {
+        this.initApplyMaskHistory = cloneCanvas(canvas);
+        this.isApplyInitMask = true;
+        this.originEditor?.requestRender();
+        this.applyMask(this.initApplyMaskHistory);
+        return;
+      }
       if (canvas) {
         this.applyMask(canvas);
         this.hoverMaskCanvas = null;
@@ -188,6 +222,7 @@ export class AutoMaskApp extends EventEmitter {
       }
     });
 
+    // 监听蒙版区域取消应用
     this.originEditor?.on(EditorEvents.MASK_REGION_UNAPPLIED, ({ canvas }) => {
       if (canvas) {
         this.applyMask(canvas);
@@ -196,18 +231,30 @@ export class AutoMaskApp extends EventEmitter {
       }
     });
 
-    this.originEditor?.on(EditorEvents.MASK_REGION_HOVER, ({ region }) => {
+    // 监听蒙版区域悬停
+    this.originEditor?.on(EditorEvents.MASK_REGION_HOVER, ({ region, mode }) => {
       if (region) {
         this.onMaskRegionHover(region);
-        const canvas = this.getHoverMaskCanvas();
+        const canvas = this.getHoverMaskCanvas(mode);
         this.scheduleHoverRender(region, canvas || null);
       } else {
         this.hoverMaskCanvas = null;
         this.scheduleHoverRender(null, null);
       }
     });
+
+    this.originEditor?.on(EditorEvents.COLOR_SELECTION_UPDATED, ({ canvas }) => {
+      if (canvas) {
+        this.applyMask(canvas);
+      }
+    });
   }
 
+  /**
+   * 调度悬停渲染
+   * @param region 蒙版区域
+   * @param canvas 蒙版画布
+   */
   private scheduleHoverRender(region: any, canvas: HTMLCanvasElement | null): void {
     // 记录待更新的状态
     this.pendingHoverUpdate = { region, canvas };
@@ -237,15 +284,14 @@ export class AutoMaskApp extends EventEmitter {
   }
 
   /**
-   *
+   * 获取悬停蒙版画布
    * @param _regionId
    * @returns
    */
-  private getHoverMaskCanvas() {
+  private getHoverMaskCanvas(mode?: string) {
     if (!this.hoverMaskCanvas) {
       return null;
     }
-    const mode = this.getMaskRegionPlugin()?.getMode();
     const objs = this.previewEditor?.objectManager.getAllObjects();
     const imageObj = objs?.[0] as ImageObject;
 
@@ -259,11 +305,8 @@ export class AutoMaskApp extends EventEmitter {
     const tempCtx = this.hoverMaskTempCanvas.getContext('2d');
     if (maskCtx && tempCtx) {
       tempCtx.clearRect(0, 0, imageObj.width, imageObj.height);
-      let applyMaskCanvas = imageObj.applyMaskCanvas || this.hoverMaskTempCanvas;
+      const applyMaskCanvas = imageObj.applyMaskCanvas || this.hoverMaskTempCanvas;
 
-      if (this.isApplyInitMask) {
-        applyMaskCanvas.getContext('2d')?.clearRect(0, 0, imageObj.width, imageObj.height);
-      }
       const cloneApplyMaskCanvas = cloneCanvas(applyMaskCanvas);
       tempCtx.drawImage(this.hoverMaskCanvas, 0, 0);
       const cloneCtx = cloneApplyMaskCanvas.getContext('2d');
@@ -275,6 +318,9 @@ export class AutoMaskApp extends EventEmitter {
     }
   }
 
+  /**
+   * 记录蒙版历史
+   */
   private recordMaskHistory() {
     const images = this.originEditor?.objectManager.getAllObjects();
     let maskCanvas = (images?.[0] as ImageObject)?.maskCanvas;
@@ -300,13 +346,15 @@ export class AutoMaskApp extends EventEmitter {
         c.width = canvas.width;
         c.height = canvas.height;
         const curCtx = c.getContext('2d')!;
-        curCtx.fillStyle = 'rgba(255, 255, 255, 255)';
         curCtx.fillRect(0, 0, canvas.width, canvas.height);
         this.initApplyMaskHistory = c;
       }
     }
   }
 
+  /**
+   * 应用偏移蒙版
+   */
   private applyOffsetMask() {
     const objs = this.originEditor?.objectManager.getAllObjects();
     if (objs?.length) {
@@ -317,6 +365,10 @@ export class AutoMaskApp extends EventEmitter {
     }
   }
 
+  /**
+   * 应用蒙版
+   * @param canvas 蒙版画布
+   */
   private applyMask(canvas: HTMLCanvasElement) {
     const images = this.previewEditor?.objectManager.getAllObjects();
     if (images?.length) {
@@ -326,7 +378,8 @@ export class AutoMaskApp extends EventEmitter {
   }
 
   /**
-   * ⚡ 优化：批量应用hover蒙版，减少中间状态
+   * 应用悬停蒙版
+   * @param canvas 蒙版画布
    */
   private applyHoverMask(canvas: HTMLCanvasElement | null) {
     const images = this.previewEditor?.objectManager.getAllObjects();
@@ -336,6 +389,10 @@ export class AutoMaskApp extends EventEmitter {
     // 注意：这里不调用requestRender，由调用方统一控制
   }
 
+  /**
+   * 处理蒙版区域悬停
+   * @param region 蒙版区域
+   */
   private onMaskRegionHover(region: any) {
     if (region) {
       this.hoverMaskCanvas = region;
@@ -370,8 +427,10 @@ export class AutoMaskApp extends EventEmitter {
    * @param src 图片地址
    */
   async setImage(src: string) {
-    await this.originEditor?.importByJson([{ src, type: 'image' }]);
-    await this.previewEditor?.importByJson([{ src, type: 'image' }]);
+    await Promise.race([
+      this.originEditor?.importByJson([{ src, type: 'image' }]),
+      this.previewEditor?.importByJson([{ src, type: 'image' }]),
+    ]);
   }
 
   private getMaskBrushPlugin() {
@@ -384,6 +443,20 @@ export class AutoMaskApp extends EventEmitter {
 
   private getOffsetMaskPlugin() {
     return this.originEditor?.plugins.getPlugin('offsetMask') as OffsetMaskPlugin;
+  }
+
+  private getColorSelectionPlugin() {
+    return this.originEditor?.plugins.getPlugin('colorSelection') as ColorSelectionPlugin;
+  }
+
+  private getOffsetPlugin() {
+    return this.originEditor?.plugins.getPlugin('offset') as OffsetPlugin;
+  }
+
+  private getSubjectExtractionMaskPlugin() {
+    return this.originEditor?.plugins.getPlugin(
+      'subjectExtractionMask',
+    ) as SubjectExtractionMaskPlugin;
   }
 
   /**
@@ -415,10 +488,23 @@ export class AutoMaskApp extends EventEmitter {
     this.originEditor?.zoomToFit();
   }
 
+  resetZoom() {
+    this.originEditor?.viewport.updateSize();
+    this.previewEditor?.viewport.updateSize();
+  }
+
+  /**
+   * 设置工具
+   * @param tool 工具
+   */
   setTool(tool: EditorTool) {
     this.originEditor?.setTool(tool);
   }
 
+  /**
+   * 设置画笔大小
+   * @param size 画笔大小
+   */
   setBrushSize(size: number) {
     const plugin = this.getMaskBrushPlugin();
     if (plugin) {
@@ -426,6 +512,10 @@ export class AutoMaskApp extends EventEmitter {
     }
   }
 
+  /**
+   * 设置画笔模式
+   * @param mode 画笔模式
+   */
   setBrushMode(mode: 'add' | 'remove') {
     const plugin = this.getMaskBrushPlugin();
     if (plugin) {
@@ -433,6 +523,10 @@ export class AutoMaskApp extends EventEmitter {
     }
   }
 
+  /**
+   * 设置画笔硬度
+   * @param hardness 画笔硬度
+   */
   setBashHardness(hardness: number) {
     const plugin = this.getMaskBrushPlugin();
     if (plugin) {
@@ -440,16 +534,94 @@ export class AutoMaskApp extends EventEmitter {
     }
   }
 
-  async loadAutoMaskImage(srcs: string[]) {
+  /**
+   * 加载自动蒙版图片
+   * @param srcs 图片地址
+   */
+  async loadAutoMaskImage(srcs: { src: string; name: string }[], texts: string[] = []) {
     const plugin = this.getMaskRegionPlugin();
     let maskRegions: any[] = [];
+    const promises = [];
+    console.time('loadAutoMaskImage');
     for (let i = 0; i < srcs.length; i++) {
-      const result = await plugin.createMaskRegionFromImage(srcs[i], srcs[i], srcs[i]);
-      maskRegions.push(result);
+      const { src, name } = srcs[i];
+      promises.push(plugin.createMaskRegionFromImage(name, name, src));
+      // const result = await plugin.createMaskRegionFromImage(name, name, src);
+      // maskRegions.push(result);
     }
+    maskRegions = await Promise.all(promises);
+    console.timeEnd('loadAutoMaskImage');
     plugin.loadMasks(maskRegions);
+    console.time('applyInitialMask');
+    await this.applyInitialMask(true, true, texts);
+    console.timeEnd('applyInitialMask');
   }
 
+  /**
+   * 应用初始蒙版
+   * @param maskId 蒙版ID
+   */
+  async applyInitialMask(needHistory = false, isReset = false, texts: string[] = []) {
+    const plugin = this.getMaskRegionPlugin();
+    if (!plugin) return;
+    await plugin.applyInitialMask(
+      'merged_mask.png',
+      this.originEditor?.objectManager.getAllObjects()[0] as ImageObject,
+      needHistory,
+      isReset,
+      texts,
+    );
+    this.setOffset(0);
+    this.getOffsetPlugin()?.setPreMaskCanvasMap();
+  }
+
+  async resetMask() {
+    if (this.initApplyMaskHistory) {
+      const canvas = cloneCanvas(this.initApplyMaskHistory);
+      const maskCanvas = (this.originEditor?.objectManager.getAllObjects()[0] as ImageObject)
+        .maskCanvas;
+      if (maskCanvas) {
+        const ctx = maskCanvas.getContext('2d')!;
+        ctx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+        ctx.drawImage(canvas, 0, 0);
+      }
+
+      this.applyMask(canvas);
+      this.originEditor?.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Reset mask');
+      this.originEditor?.requestRender();
+    }
+  }
+
+  setColorSelectionMode(mode: 'add' | 'remove') {
+    const plugin = this.getColorSelectionPlugin();
+    if (plugin) {
+      plugin.setMode(mode);
+    }
+  }
+
+  setColorSelectionContinuous(continuous: boolean) {
+    const plugin = this.getColorSelectionPlugin();
+    if (plugin) {
+      plugin.setContinuous(continuous);
+    }
+  }
+
+  clearMask(recordHistory = true) {
+    const images = this.originEditor?.objectManager.getAllObjects();
+    if (images?.length) {
+      (images[0] as ImageObject).clearMask();
+      if (recordHistory) {
+        this.originEditor?.hooks.trigger(EditorHooks.HISTORY_CAPTURE, `Cleared mask`, true);
+        this.applyMask((images[0] as ImageObject).maskCanvas as HTMLCanvasElement);
+      }
+      this.originEditor?.requestRender();
+    }
+  }
+
+  /**
+   * 设置蒙版区域模式
+   * @param mode 蒙版区域模式
+   */
   setMaskRegionMode(mode: 'add' | 'remove') {
     const plugin = this.getMaskRegionPlugin();
     if (plugin) {
@@ -457,20 +629,189 @@ export class AutoMaskApp extends EventEmitter {
     }
   }
 
-  setOffsetMask(offset: number) {
+  /**
+   * 设置偏移蒙版
+   * @param offset 偏移量
+   */
+  setOffsetMask(offset: number, needRecord = false) {
     const plugin = this.getOffsetMaskPlugin();
     if (plugin) {
-      plugin.setOffset(offset);
+      plugin.setOffset(offset, needRecord);
+    }
+    this.emit('offsetMaskChange', { offset });
+  }
+
+  /**
+   * 设置偏移
+   */
+  setOffset(offset: number, needRecord = false) {
+    const plugin = this.getOffsetPlugin();
+    if (plugin) {
+      this.offsetValue = offset;
+      plugin.setOffset(this.offsetValue, needRecord, this.smoothValue);
+    }
+    this.emit('offsetMaskChange', { offset });
+    if (this.offsetValue === 0) {
+      this.smoothValue = 0;
+      this.emit('smoothChange', { val: 0 });
     }
   }
 
+  setSmooth(val: number) {
+    this.smoothValue = val;
+    const plugin = this.getOffsetPlugin();
+    if (plugin) {
+      plugin.setOffset(this.offsetValue, true, this.smoothValue);
+    }
+    this.emit('smoothChange', { val });
+  }
+
+  /**
+   * 检查提取蒙版
+   * @param maskUrl
+   * @returns 是否重叠
+   */
+  async checkSubjectExtractionMask(maskUrl: string) {
+    const image = await loadImage(maskUrl);
+    if (!image || !(image instanceof HTMLImageElement)) return false;
+    const objects = this.originEditor?.objectManager.getAllObjects();
+    const cur = objects?.[0] as ImageObject;
+    if (cur) {
+      const maskCanvas = cur.maskCanvas;
+      if (maskCanvas) {
+        const canvas = document.createElement('canvas');
+        canvas.width = maskCanvas.width;
+        canvas.height = maskCanvas.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return false;
+        ctx.drawImage(image, 0, 0);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const maskData = convertMaskToTransparent(imageData);
+        ctx.putImageData(maskData, 0, 0);
+        // 判断canvas和maskCanvas是否有重叠的像素
+        const flag = hasOverlappingPixels(canvas, maskCanvas);
+        return flag;
+      }
+    }
+  }
+
+  /**
+   * 初始化提取蒙版
+   * @param maskUrl
+   */
+  async initSubjectExtractionMask(maskUrl: string) {
+    const objs = this.originEditor?.objectManager.getAllObjects();
+    if (objs && objs.length) {
+      objs.forEach(obj => {
+        if (obj instanceof ImageObject) {
+          if (!obj.maskCanvas) {
+            const canvas = document.createElement('canvas');
+            canvas.width = obj.width;
+            canvas.height = obj.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+            obj.maskCanvas = canvas;
+            obj.maskCtx = ctx as CanvasRenderingContext2D;
+            obj.hasMask = true;
+            obj.setMaskOpacity(PLUGIN_DEFAULT_OPACITY || 0.5);
+            obj.setMaskColor(PLUGIN_DEFAULT_COLOR || '#FF0000');
+          }
+        }
+      });
+    }
+    const plugin = this.getSubjectExtractionMaskPlugin();
+    if (plugin) {
+      await plugin.initSubjectExtractionMask(maskUrl);
+    }
+  }
+
+  /**
+   * 设置提取蒙版模式
+   * @param type
+   */
+  setSubjectExtractionMaskMode(type: 'fill' | 'outline') {
+    const plugin = this.getSubjectExtractionMaskPlugin();
+    if (plugin) {
+      plugin.setSubjectExtractionMaskMode(type);
+    }
+  }
+
+  /**
+   * 设置提取蒙版
+   */
+  setSubjectExtractionMask(recordHistory: boolean = true) {
+    const plugin = this.getSubjectExtractionMaskPlugin();
+    if (plugin) {
+      plugin.setSubjectExtractionMask(recordHistory);
+    }
+    if (!recordHistory && !this.initApplyMaskHistory) {
+      const maskCanvas = (this.originEditor?.objectManager.getAllObjects()[0] as ImageObject)
+        .maskCanvas;
+      if (maskCanvas) {
+        const c = document.createElement('canvas');
+        c.width = maskCanvas.width;
+        c.height = maskCanvas.height;
+        const ctx = c.getContext('2d')!;
+        ctx.drawImage(maskCanvas, 0, 0);
+        this.initApplyMaskHistory = c;
+        this.isApplyInitMask = true;
+        this.originEditor?.history?.setInitialState(this.originEditor?.getState());
+        this.applyMask(c);
+      }
+    }
+    this.setOffset(0);
+    this.getOffsetPlugin()?.setPreMaskCanvasMap();
+  }
+
+  setOutlineMask(offset: number) {
+    const plugin = this.getSubjectExtractionMaskPlugin();
+    if (plugin) {
+      plugin.setOutlineMask(offset);
+    }
+  }
+
+  /**
+   * 撤销
+   */
   undo() {
     this.originEditor?.undo();
   }
+
+  /**
+   * 重做
+   */
   redo() {
     this.originEditor?.redo();
   }
 
+  /**
+   * 获取蒙版结果
+   */
+  getMaskResult() {
+    const images = this.originEditor?.objectManager.getAllObjects();
+    if (images?.length) {
+      const canvas = (images[0] as ImageObject).maskCanvas;
+      if (canvas) {
+        const c = document.createElement('canvas');
+        c.width = canvas.width;
+        c.height = canvas.height;
+        const ctx = c.getContext('2d')!;
+        if (!ctx) {
+          return null;
+        }
+        ctx.drawImage(canvas, 0, 0);
+        return {
+          mask: c.toDataURL(),
+          image: (images[0] as ImageObject).getImage(),
+        };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 销毁
+   */
   destroy() {
     // 清理定时器
     if (this.renderTimeout) {
@@ -485,5 +826,12 @@ export class AutoMaskApp extends EventEmitter {
     this.hoverMaskCanvas = null;
     this.applyMaskHistory = [];
     this.applyMaskIndex = -1;
+    this.offsetValue = 0;
+    this.smoothValue = 0;
+  }
+
+  toggleStopEventListeners(bool: boolean) {
+    this.originEditor?.toggleStopEventListeners(bool);
+    this.previewEditor?.toggleStopEventListeners(bool);
   }
 }

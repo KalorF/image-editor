@@ -9,7 +9,7 @@ export class OffsetMaskPlugin implements Plugin<Editor> {
   version = '1.0.0';
 
   private editor!: Editor;
-  private offset: number = 0;
+  offset: number = 0;
 
   private preMaskCanvasMap: Record<string, HTMLCanvasElement> | null = null;
 
@@ -42,10 +42,10 @@ export class OffsetMaskPlugin implements Plugin<Editor> {
     this.preMaskCanvasMap = preMaskCanvasMap;
   }
 
-  setOffset(offset: number) {
+  setOffset(offset: number, needRecord = false) {
     this.offset = offset;
 
-    if (this.offset === 0) {
+    if (this.offset === 0 && !needRecord) {
       return;
     }
 
@@ -70,7 +70,9 @@ export class OffsetMaskPlugin implements Plugin<Editor> {
           }
         }
       }
-      this.editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Offset mask', true);
+      if (needRecord) {
+        this.editor.hooks.trigger(EditorHooks.HISTORY_CAPTURE, 'Offset mask', true);
+      }
       // 触发渲染
       this.editor.requestRender();
     }

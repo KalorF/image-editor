@@ -58,20 +58,18 @@ export class Viewport extends EventEmitter {
   // 绑定鼠标和键盘事件
   private bindEvents(): void {
     // 滚轮缩放
-    this.canvas.addEventListener('wheel', this.handleWheel.bind(this));
-
+    // this.canvas.addEventListener('wheel', this.handleWheel.bind(this));
     // 鼠标拖拽平移
     // this.canvas.addEventListener('mousedown', this.handleMouseDown.bind(this));
     // this.canvas.addEventListener('mousemove', this.handleMouseMove.bind(this));
     // this.canvas.addEventListener('mouseup', this.handleMouseUp.bind(this));
     // this.canvas.addEventListener('mouseleave', this.handleMouseUp.bind(this));
-
     // 窗口大小变化
-    window.addEventListener('resize', this.handleResize.bind(this));
+    // window.addEventListener('resize', this.handleResize.bind(this));
   }
 
   // 处理滚轮事件
-  private handleWheel(event: WheelEvent): void {
+  handleWheel(event: WheelEvent): void {
     event.preventDefault();
 
     const currentTime = performance.now();
@@ -154,7 +152,7 @@ export class Viewport extends EventEmitter {
   }
 
   // 处理窗口大小变化
-  private handleResize(): void {
+  handleResize(): void {
     this.updateSize();
   }
 
@@ -388,12 +386,12 @@ export class Viewport extends EventEmitter {
     // 🎯 清理缩放记录
     this.clearZoomMemory();
 
-    this.canvas.removeEventListener('wheel', this.handleWheel);
-    this.canvas.removeEventListener('mousedown', this.handleMouseDown);
-    this.canvas.removeEventListener('mousemove', this.handleMouseMove);
-    this.canvas.removeEventListener('mouseup', this.handleMouseUp);
-    this.canvas.removeEventListener('mouseleave', this.handleMouseUp);
-    window.removeEventListener('resize', this.handleResize);
+    // this.canvas.removeEventListener('wheel', this.handleWheel);
+    // this.canvas.removeEventListener('mousedown', this.handleMouseDown);
+    // this.canvas.removeEventListener('mousemove', this.handleMouseMove);
+    // this.canvas.removeEventListener('mouseup', this.handleMouseUp);
+    // this.canvas.removeEventListener('mouseleave', this.handleMouseUp);
+    // window.removeEventListener('resize', this.handleResize);
     this.removeAllListeners();
   }
 

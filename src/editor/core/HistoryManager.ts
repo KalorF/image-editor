@@ -555,4 +555,24 @@ export class HistoryManager extends EventEmitter {
       },
     );
   }
+
+  getFullState(): any {
+    return {
+      initialState: this.initialState,
+      history: this.history,
+      currentIndex: this.currentIndex,
+      lastAppliedIndex: this.lastAppliedIndex,
+      pendingIndex: this.pendingIndex,
+      isApplyingState: this.isApplyingState,
+    };
+  }
+
+  setFullState(state: any): void {
+    this.initialState = state.initialState;
+    this.history = state.history;
+    this.currentIndex = state.currentIndex;
+    this.lastAppliedIndex = state.lastAppliedIndex;
+    this.pendingIndex = state.pendingIndex;
+    this.isApplyingState = state.isApplyingState;
+  }
 }

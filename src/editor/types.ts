@@ -55,13 +55,22 @@ export interface Plugin<T = any> {
   uninstall?: (editor: T) => void;
 }
 
-export type EditorTool = 'maskBrush' | 'maskRegion' | 'select' | 'colorSelection' | '';
+export type EditorTool =
+  | 'maskBrush'
+  | 'maskRegion'
+  | 'select'
+  | 'colorSelection'
+  | 'extractMask'
+  | 'edgeExtraction'
+  | '';
 
 export const enum EditorTools {
   MASK_BRUSH = 'maskBrush',
   MASK_REGION = 'maskRegion',
   SELECT = 'select',
   COLOR_SELECTION = 'colorSelection',
+  EXTRACT_MASK = 'extractMask',
+  EDGE_EXTRACTION = 'edgeExtraction',
 }
 
 // ========== 钩子系统类型定义 ==========
@@ -313,6 +322,7 @@ export const enum EditorEvents {
 
   // 颜色选择插件事件
   COLOR_SELECTION_COMPLETED = 'colorSelection:completed',
+  COLOR_SELECTION_UPDATED = 'colorSelection:updated',
   COLOR_SELECTION_ENABLED = 'colorSelection:enabled',
   COLOR_SELECTION_DISABLED = 'colorSelection:disabled',
   COLOR_SELECTION_TOLERANCE_CHANGED = 'colorSelection:tolerance-changed',
@@ -509,8 +519,18 @@ export interface AutoMaskEventMap {
   [EditorEvents.MASK_REGION_DISABLED]: BaseEventPayload;
   [EditorEvents.MASK_REGION_LOADED]: { maskCount: number };
   [EditorEvents.MASK_REGION_CLEARED]: BaseEventPayload;
-  [EditorEvents.MASK_REGION_HOVER]: { region: any; point?: Point; imageObject?: any };
-  [EditorEvents.MASK_REGION_APPLIED]: { region: any; imageObject: any; canvas?: HTMLCanvasElement };
+  [EditorEvents.MASK_REGION_HOVER]: {
+    region: any;
+    point?: Point;
+    imageObject?: any;
+    mode?: string;
+  };
+  [EditorEvents.MASK_REGION_APPLIED]: {
+    region: any;
+    imageObject: any;
+    canvas?: HTMLCanvasElement;
+    needHistory?: boolean;
+  };
   [EditorEvents.MASK_REGION_UNAPPLIED]: {
     region: any;
     imageObject: any;
@@ -553,6 +573,9 @@ export interface ColorSelectionEventMap {
   [EditorEvents.COLOR_SELECTION_OPACITY_CHANGED]: { opacity: number };
   [EditorEvents.COLOR_SELECTION_MODE_CHANGED]: { mode: string };
   [EditorEvents.COLOR_SELECTION_CLEARED]: BaseEventPayload;
+  [EditorEvents.COLOR_SELECTION_UPDATED]: {
+    canvas?: HTMLCanvasElement;
+  };
 }
 
 // 蒙版画笔插件事件

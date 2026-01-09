@@ -8,7 +8,7 @@ import { PluginManager } from './core/PluginManager';
 import { Viewport } from './core/Viewport';
 import { BaseObject } from './objects/BaseObject';
 import { ImageObject } from './objects/ImageObject';
-import type { EditorTool, Plugin, Point } from './types';
+import type { Bounds, EditorTool, Plugin, Point } from './types';
 import { EditorEvents, EditorHooks, EditorRenderType } from './types';
 import { MathUtils } from './utils/math';
 
@@ -22,7 +22,9 @@ export interface EditorOptions {
   enablePan?: boolean;
   enableSpacePan?: boolean; // 新增：启用空格键移动画布功能
   enableHistory?: boolean; // 新增：启用内置历史
+  enableHistoryHotkeys?: boolean; // 新增：启用内置历史快捷键
   renderFPS?: number; // 渲染帧率
+  enableViewportCulling?: boolean; // 新增：启用视口裁剪（默认 true）
   history?: {
     maxHistorySize?: number;
     captureInterval?: number;
@@ -36,7 +38,7 @@ export interface EditorOptions {
 
 export class Editor extends EventEmitter {
   // 容器和画布
-  private container: HTMLElement;
+  container: HTMLElement;
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
 
@@ -63,18 +65,41 @@ export class Editor extends EventEmitter {
   private multiSelection: BaseObject[] = [];
 
   // 工具状态
-  private currentTool: EditorTool = 'select';
+  private currentTool: EditorTool = '';
 
   // 空格键移动画布状态
   private isSpacePressed: boolean = false;
   public isPanning: boolean = false;
   private lastPanPoint: Point = { x: 0, y: 0 };
+  private isHandActive: boolean = false;
+
+  private stopEventlisteners: boolean = false;
+  private enableHistoryHotkeys: boolean = true;
+
+  disableAllTools: boolean = false;
+  private enableViewportCulling: boolean = true;
+
+  // 保存事件处理器引用
+  private boundHandleMouseDown: (event: MouseEvent) => void;
+  private boundHandleMouseMove: (event: MouseEvent) => void;
+  private boundHandleMouseUp: (event: MouseEvent) => void;
+  private boundHandleMouseLeave: (event: MouseEvent) => void;
+  private boundHandleMouseEnter: (event: MouseEvent) => void;
+  private boundHandleClick: (event: MouseEvent) => void;
+  private boundHandleDoubleClick: (event: MouseEvent) => void;
+  private boundHandleWheel: (event: WheelEvent) => void;
+  private boundHandleResize: () => void;
+  private boundHandleKeyDown: (event: KeyboardEvent) => void;
+  private boundHandleKeyUp: (event: KeyboardEvent) => void;
 
   constructor(options: EditorOptions) {
     super();
 
     this.options = { ...options };
     this.backgroundColor = options.backgroundColor || '#FFFFFF00';
+    this.stopEventlisteners = false;
+    this.enableHistoryHotkeys = options.enableHistoryHotkeys ?? true;
+    this.enableViewportCulling = options.enableViewportCulling ?? true;
 
     // 获取容器
     if (typeof options.container === 'string') {
@@ -107,6 +132,19 @@ export class Editor extends EventEmitter {
     if (options.enableHistory !== false) {
       this.history = new HistoryManager(this, options.history);
     }
+
+    // 绑定事件处理器引用
+    this.boundHandleMouseDown = this.handleMouseDown.bind(this);
+    this.boundHandleMouseMove = this.handleMouseMove.bind(this);
+    this.boundHandleMouseUp = this.handleMouseUp.bind(this);
+    this.boundHandleMouseLeave = this.handleMouseLeave.bind(this);
+    this.boundHandleMouseEnter = this.handleMouseEnter.bind(this);
+    this.boundHandleClick = this.handleClick.bind(this);
+    this.boundHandleDoubleClick = this.handleDoubleClick.bind(this);
+    this.boundHandleWheel = this.handleWheel.bind(this);
+    this.boundHandleResize = this.handleResize.bind(this);
+    this.boundHandleKeyDown = this.handleKeyDown.bind(this);
+    this.boundHandleKeyUp = this.handleKeyUp.bind(this);
 
     // 绑定事件
     this.bindEvents();
@@ -150,18 +188,19 @@ export class Editor extends EventEmitter {
 
   // 绑定事件
   private bindEvents(): void {
-    // 画布事件
-    this.canvas.addEventListener('pointerdown', this.handleMouseDown.bind(this));
-    this.canvas.addEventListener('pointermove', this.handleMouseMove.bind(this));
-    this.canvas.addEventListener('pointerup', this.handleMouseUp.bind(this));
-    this.canvas.addEventListener('pointerleave', this.handleMouseLeave.bind(this));
-    this.canvas.addEventListener('pointerenter', this.handleMouseEnter.bind(this));
-    this.canvas.addEventListener('click', this.handleClick.bind(this));
-    this.canvas.addEventListener('dblclick', this.handleDoubleClick.bind(this));
-
+    // 画布事件 - 使用保存的引用
+    this.canvas.addEventListener('pointerdown', this.boundHandleMouseDown);
+    this.canvas.addEventListener('pointermove', this.boundHandleMouseMove);
+    this.canvas.addEventListener('pointerup', this.boundHandleMouseUp);
+    this.canvas.addEventListener('pointerleave', this.boundHandleMouseLeave);
+    this.canvas.addEventListener('pointerenter', this.boundHandleMouseEnter);
+    this.canvas.addEventListener('click', this.boundHandleClick);
+    this.canvas.addEventListener('dblclick', this.boundHandleDoubleClick);
+    this.canvas.addEventListener('wheel', this.boundHandleWheel);
+    window.addEventListener('resize', this.boundHandleResize);
     // 键盘事件
-    document.addEventListener('keydown', this.handleKeyDown.bind(this));
-    document.addEventListener('keyup', this.handleKeyUp.bind(this));
+    document.addEventListener('keydown', this.boundHandleKeyDown);
+    document.addEventListener('keyup', this.boundHandleKeyUp);
 
     // 视口事件
     this.viewport.on(EditorEvents.VIEWPORT_ZOOM, ({ zoom }) => {
@@ -233,19 +272,39 @@ export class Editor extends EventEmitter {
   }
 
   private unbindEvents(): void {
-    this.canvas.removeEventListener('pointerdown', this.handleMouseDown);
-    this.canvas.removeEventListener('pointermove', this.handleMouseMove);
-    this.canvas.removeEventListener('pointerup', this.handleMouseUp);
-    this.canvas.removeEventListener('pointerleave', this.handleMouseLeave);
-    this.canvas.removeEventListener('pointerenter', this.handleMouseEnter);
-    this.canvas.removeEventListener('click', this.handleClick);
-    this.canvas.removeEventListener('dblclick', this.handleDoubleClick);
-    document.removeEventListener('keydown', this.handleKeyDown);
-    document.removeEventListener('keyup', this.handleKeyUp);
+    // 使用保存的引用移除事件监听器
+    this.canvas.removeEventListener('pointerdown', this.boundHandleMouseDown);
+    this.canvas.removeEventListener('pointermove', this.boundHandleMouseMove);
+    this.canvas.removeEventListener('pointerup', this.boundHandleMouseUp);
+    this.canvas.removeEventListener('pointerleave', this.boundHandleMouseLeave);
+    this.canvas.removeEventListener('pointerenter', this.boundHandleMouseEnter);
+    this.canvas.removeEventListener('click', this.boundHandleClick);
+    this.canvas.removeEventListener('dblclick', this.boundHandleDoubleClick);
+    this.canvas.removeEventListener('wheel', this.boundHandleWheel);
+    document.removeEventListener('keydown', this.boundHandleKeyDown);
+    document.removeEventListener('keyup', this.boundHandleKeyUp);
+    window.removeEventListener('resize', this.boundHandleResize);
+  }
+
+  private handleWheel(event: WheelEvent): void {
+    if (this.stopEventlisteners) {
+      return;
+    }
+    this.viewport.handleWheel(event);
+  }
+
+  private handleResize(): void {
+    if (this.stopEventlisteners) {
+      return;
+    }
+    this.viewport.handleResize();
   }
 
   // 鼠标事件处理
   private handleMouseDown(event: MouseEvent): void {
+    if (this.stopEventlisteners) {
+      return;
+    }
     // this.canvas.focus();
 
     const point = this.getMousePoint(event);
@@ -290,6 +349,9 @@ export class Editor extends EventEmitter {
   }
 
   private handleMouseMove(event: MouseEvent): void {
+    if (this.stopEventlisteners) {
+      return;
+    }
     const point = this.getMousePoint(event);
     const worldPoint = this.viewport.screenToWorld(point);
 
@@ -307,6 +369,7 @@ export class Editor extends EventEmitter {
       this.viewport.pan(deltaX, deltaY);
       this.lastPanPoint = point;
       this.emit(EditorEvents.PAN_MOVE, { point: worldPoint, deltaX, deltaY, event });
+      this.updateCanvasCursor('grabbing', event);
       return;
     }
 
@@ -319,6 +382,9 @@ export class Editor extends EventEmitter {
   }
 
   private handleMouseUp(event: MouseEvent): void {
+    if (this.stopEventlisteners) {
+      return;
+    }
     const point = this.getMousePoint(event);
     const worldPoint = this.viewport.screenToWorld(point);
 
@@ -345,6 +411,9 @@ export class Editor extends EventEmitter {
   }
 
   private handleClick(event: MouseEvent): void {
+    if (this.stopEventlisteners) {
+      return;
+    }
     const point = this.getMousePoint(event);
     const worldPoint = this.viewport.screenToWorld(point);
 
@@ -361,6 +430,9 @@ export class Editor extends EventEmitter {
   }
 
   private handleMouseLeave(event: MouseEvent): void {
+    if (this.stopEventlisteners) {
+      return;
+    }
     const point = this.getMousePoint(event);
     const worldPoint = this.viewport.screenToWorld(point);
 
@@ -375,6 +447,9 @@ export class Editor extends EventEmitter {
   }
 
   private handleMouseEnter(event: MouseEvent): void {
+    if (this.stopEventlisteners) {
+      return;
+    }
     const point = this.getMousePoint(event);
     const worldPoint = this.viewport.screenToWorld(point);
 
@@ -390,6 +465,9 @@ export class Editor extends EventEmitter {
 
   // 键盘事件处理
   private handleKeyDown(event: KeyboardEvent): void {
+    if (this.stopEventlisteners) {
+      return;
+    }
     // 触发钩子
     const hookResults = this.hooks.trigger(EditorHooks.KEY_DOWN, event);
     if (hookResults.beforeResults.includes(false)) {
@@ -430,16 +508,20 @@ export class Editor extends EventEmitter {
           event.preventDefault();
           break;
         case 'z':
-          if (event.shiftKey) {
-            this.redo();
-          } else {
-            this.undo();
+          if (this.enableHistoryHotkeys) {
+            if (event.shiftKey) {
+              this.redo();
+            } else {
+              this.undo();
+            }
           }
           event.preventDefault();
           break;
         case 'y':
           // Windows/Linux 常见重做快捷键 Ctrl+Y
-          this.redo();
+          if (this.enableHistoryHotkeys) {
+            this.redo();
+          }
           event.preventDefault();
           break;
       }
@@ -449,10 +531,18 @@ export class Editor extends EventEmitter {
   }
 
   private handleKeyUp(event: KeyboardEvent): void {
+    if (this.stopEventlisteners) {
+      return;
+    }
     // 空格键移动画布功能
     if (this.options.enableSpacePan !== false && event.key === ' ') {
-      this.isSpacePressed = false;
-      if (!this.isPanning) {
+      if (this.isHandActive) {
+        this.isSpacePressed = true;
+        this.updateCanvasCursor('grab');
+      } else {
+        this.isSpacePressed = false;
+      }
+      if (!this.isPanning && !this.isHandActive) {
         this.updateCanvasCursor('default');
       }
       this.emit(EditorEvents.SPACE_UP, { event });
@@ -466,6 +556,10 @@ export class Editor extends EventEmitter {
   // 获取鼠标在画布上的位置
   private getMousePoint(event: MouseEvent): Point {
     return MathUtils.getCanvasMousePoint(event, this.canvas);
+  }
+
+  toggleDisableAllTools(bool: boolean = false): void {
+    this.disableAllTools = bool;
   }
 
   // 对象操作
@@ -494,7 +588,7 @@ export class Editor extends EventEmitter {
   }
 
   updateCanvasCursor(cursor: string, event?: MouseEvent, needEmit = true): void {
-    this.canvas.style.cursor = cursor;
+    this.canvas.style.cursor = `${cursor}`;
     if (needEmit) {
       this.emit(EditorEvents.CANVAS_CURSOR_UPDATED, { cursor, event });
     }
@@ -626,6 +720,14 @@ export class Editor extends EventEmitter {
     return this.isSpacePressed;
   }
 
+  setSpacePressed(value: boolean): void {
+    this.isSpacePressed = value;
+    this.isHandActive = value;
+    if (value) {
+      this.updateCanvasCursor('grab');
+    }
+  }
+
   // 批量加载队列
   private imageLoadQueue: (() => void)[] = [];
   private isProcessingQueue = false;
@@ -751,19 +853,15 @@ export class Editor extends EventEmitter {
     const viewportWidth = this.viewport.width;
     const viewportHeight = this.viewport.height;
 
-    const maxWidth = viewportWidth * 0.9;
-    const maxHeight = viewportHeight * 0.9;
+    const maxWidth = viewportWidth * 0.85;
+    const maxHeight = viewportHeight * 0.85;
 
-    // 如果图片尺寸超过最大尺寸，按比例缩放
-    if (imageObject.width > maxWidth || imageObject.height > maxHeight) {
-      const scaleX = maxWidth / imageObject.width;
-      const scaleY = maxHeight / imageObject.height;
-      const scale = Math.min(scaleX, scaleY); // 保持宽高比
+    const scaleX = maxWidth / imageObject.width;
+    const scaleY = maxHeight / imageObject.height;
+    const scale = Math.min(scaleX, scaleY); // 保持宽高比
 
-      imageObject.setScale(scale, scale);
-      return scale;
-    }
-    return 1;
+    imageObject.setScale(scale, scale);
+    return scale;
   }
 
   // 渲染循环管理
@@ -859,9 +957,20 @@ export class Editor extends EventEmitter {
     this.ctx.fillStyle = this.backgroundColor;
     this.ctx.fillRect(0, 0, this.viewport.width, this.viewport.height);
 
-    // 渲染所有对象（传递视口信息用于视野裁剪）
-    // NOTE: 如需视野裁剪，可在此计算 viewport 信息
-    this.objectManager.renderAll(this.ctx, type);
+    // 获取可视区域边界（世界坐标）
+    const visibleBounds = this.viewport.getVisibleBounds();
+    let viewportBounds: Bounds | undefined = undefined;
+    if (this.enableViewportCulling) {
+      viewportBounds = {
+        left: visibleBounds.left,
+        top: visibleBounds.top,
+        width: visibleBounds.width,
+        height: visibleBounds.height,
+      };
+    }
+
+    // 渲染所有对象（传递视口边界用于视野裁剪）
+    this.objectManager.renderAll(this.ctx, type, viewportBounds);
 
     // 渲染选择框
     this.selectionBox?.render(this.ctx);
@@ -1016,6 +1125,9 @@ export class Editor extends EventEmitter {
 
   // 销毁编辑器
   destroy(): void {
+    // 先解绑事件，再移除画布
+    this.unbindEvents();
+
     // 停止渲染循环
     if (this.animationFrame) {
       cancelAnimationFrame(this.animationFrame);
@@ -1040,10 +1152,8 @@ export class Editor extends EventEmitter {
     this.selectionBox?.destroy();
     this.objectManager.clear();
 
-    // 移除画布
+    // 最后移除画布
     this.canvas.remove();
-
-    this.unbindEvents();
 
     // 清理事件
     this.removeAllListeners();
@@ -1095,6 +1205,14 @@ export class Editor extends EventEmitter {
 
   isHistoryEnabled(): boolean {
     return !!this.history && this.history.isEnabled();
+  }
+
+  toggleStopEventListeners(bool: boolean): void {
+    this.stopEventlisteners = bool;
+  }
+
+  getCanvasElement(): HTMLCanvasElement {
+    return this.canvas;
   }
 }
 

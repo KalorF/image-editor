@@ -1,7 +1,7 @@
 import { Editor, type EditorOptions } from './Editor';
 
 // 编辑器框架入口文件
-export { Editor } from './Editor';
+export { Editor, type EditorType } from './Editor';
 
 // 核心类型
 export * from './types';
@@ -35,8 +35,8 @@ export const DEFAULT_CONFIG = {
   enablePan: true,
   enableHistory: true,
   history: {
-    maxHistorySize: 50,
-    captureInterval: Infinity,
+    maxHistorySize: Infinity,
+    captureInterval: 50,
   },
 };
 
